@@ -7,6 +7,7 @@ export abstract class AuditItem {
     updatedBy!:any;
     updatedDate!:Date;
     userId!:number;
+    signature!:any;
 
     constructor(
         createdBy: string = null as any,

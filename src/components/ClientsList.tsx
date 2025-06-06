@@ -265,7 +265,7 @@ const ClientList = () => {
 
                 <div>
                   <h5 className="card-title mb-1">{client.name}</h5>
-                  <p className="card-text mb-0" style={{ fontSize: "0.9rem" }}>
+                  {/* <p className="card-text mb-0" style={{ fontSize: "0.9rem" }}>
                     <small>
                       DOB: {moment(new Date(client.dob)).format("MM/DD/YYYY")}
                     </small>
@@ -278,7 +278,7 @@ const ClientList = () => {
                       Last Visit:{" "}
                       {moment(new Date(client.lastVisit)).format("MM/DD/YYYY")}
                     </small>
-                  </p>
+                  </p> */}
                 </div>
 
                 <div className="ms-auto d-flex flex-column gap-2">
