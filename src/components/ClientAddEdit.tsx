@@ -10,12 +10,17 @@ import { Client } from "../models/client";
 import { toast } from "react-toastify";
 import clientsData from "../mockData/clients.json";
 import faceOverlay from "./images/face.png";
+import { PatientService } from "../services/PatientService"
+import { ErrorBoundary } from "react-error-boundary";
 
-interface PatientFormData {
-  name: string;
-  age: string;
-  gender: "male" | "female" | "other";
-  photo: string;
+let PatientFormData: {
+  FirstName: string;
+  LastName: string;
+  Email: string;
+  PatientId: string;
+  ProceduralName:string;
+  DateOfBirth:string;
+  id:number;
 }
 
 type params = {
@@ -34,7 +39,7 @@ const ClientAddEdit = (props: params) => {
     setSelectedItem,
     onSave,
   } = props;
-
+const patientSvc = new PatientService();
   const header = (selectedItem.id > 0 ? "Edit" : "Add") + " Client";
 
   const [cameraActive, setCameraActive] = useState(false);
@@ -69,6 +74,35 @@ const ClientAddEdit = (props: params) => {
       elementSize: 6,
       isSideByItem: true,
     },
+    {
+      key: "Email",
+      value: "email",
+      isRequired: true,
+      elementSize: 6,
+      sidebyItem: "Patient Id",
+    },
+    {
+      key: "Patient Id",
+      value: "patientId",
+      isRequired: true,
+      elementSize: 6,
+      isSideByItem: true,
+    },
+    {
+      key: "procedure Name",
+      value: "procedureName",
+      isRequired: true,
+      elementSize: 6,
+      sidebyItem: "DateOfBirth",
+       type: ElementType.dropdown
+    },
+    {
+      key: "DateOfBirth",
+      value: "dateOfBirth",
+      isRequired: true,
+      elementSize: 6,
+      isSideByItem: true,
+    }
   ];
 
   const getValidationsSchema = (list: Array<any>) => {
@@ -196,6 +230,7 @@ const ClientAddEdit = (props: params) => {
 
   const onSubmit = (item: any) => {
     setIsSubmitClicked(true);
+    debugger;
 
     if (!photoPreview) {
       toast.error("Photo is required.");
@@ -217,10 +252,15 @@ const ClientAddEdit = (props: params) => {
     let list: Array<Client> = clientsData as any;
     let obj: Client = new Client();
     Util.toClassObject(obj, item);
+    let patient:any;
     obj.id = selectedItem.id ?? list.length + 1;
-    obj.avatar = photoPreview;
-    obj.signature = finalSignature || null;
-    obj.name = obj.firstName + " " + obj.lastName;
+    //obj.avatar = photoPreview;
+    //obj.signature = finalSignature || null;
+    //obj.name = obj.firstName + " " + obj.lastName;
+    
+    debugger
+    console.log(obj);
+
 
     if (selectedItem.id > 0) {
       const index = list.findIndex((i) => i.id === selectedItem.id);
@@ -228,6 +268,7 @@ const ClientAddEdit = (props: params) => {
       toast.success("Client updated successfully");
     } else {
       list.push(obj);
+      patientSvc.postItem(obj);
       toast.success("Client added successfully");
     }
 
@@ -269,6 +310,13 @@ const ClientAddEdit = (props: params) => {
   };
 
   const getDropdownvalues = (item: any) => {
+    const procedure=[
+      { procedureId: "Brow Lift", procedureName: "Brow Lift" },
+      { procedureId: "Body Feminisation", procedureName: "Body Feminisation" },
+      { procedureId: "Voice and Throat", procedureName: "Voice and Throat" },
+      { procedureId: "Facial Masculinisation", procedureName: "Facial Masculinisation" }
+    ]
+
     const doctors = [
       { doctorId: 1, doctorName: "Dr. Ayesha Khan" },
       { doctorId: 2, doctorName: "Dr. Rajeev Mehta" },
@@ -287,10 +335,10 @@ const ClientAddEdit = (props: params) => {
         value: doctorId,
       }));
     }
-    if (item.key === "Gender") {
-      return genders.map(({ genderId, genderName }) => ({
-        name: genderName,
-        value: genderId,
+    if (item.key === "procedure Name") {
+      return procedure.map(({ procedureId, procedureName }) => ({
+        name: procedureName,
+        value: procedureId,
       }));
     }
     return [];

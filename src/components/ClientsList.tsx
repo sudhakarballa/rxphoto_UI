@@ -161,7 +161,7 @@ const ClientList = () => {
                       <span className="fw-semibold">{client.name}</span>
                     </td>
                     <td>{client.name}</td>
-                    <td>{moment(new Date(client.dob)).format("MM/DD/YYYY")}</td>
+                    <td>{moment(new Date(client.dateOfBirth)).format("MM/DD/YYYY")}</td>
                     <td className="d-none d-md-table-cell">{client.email}</td>
                     <td className="d-none d-md-table-cell">{client.phone}</td>
                     <td className="d-none d-md-table-cell">

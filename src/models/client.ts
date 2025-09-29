@@ -8,11 +8,13 @@ export class Client extends AuditItem {
   firstName!: string;
   middleName!: string;
   lastName!: string;
-  dob!: any;
+  dateOfBirth!: any;
   email!: string;
   phone!: number;
   password!: string;
   userId!: number;
   referringDoctor!: number;
   lastVisit!: any;
+  procedureName!:any;
+  patientId:any;
 }
