@@ -1,0 +1,14 @@
+<svg width="300" height="500" viewBox="0 0 300 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Head back -->
+  <ellipse cx="150" cy="70" rx="50" ry="60" stroke="white" stroke-width="4" fill="none" opacity="0.9"/>
+  <!-- Back torso -->
+  <ellipse cx="150" cy="250" rx="80" ry="140" stroke="white" stroke-width="4" fill="none" opacity="0.9"/>
+  <!-- Shoulder blades -->
+  <ellipse cx="110" cy="190" rx="25" ry="40" stroke="white" stroke-width="3" fill="none"/>
+  <ellipse cx="190" cy="190" rx="25" ry="40" stroke="white" stroke-width="3" fill="none"/>
+  <!-- Spine line -->
+  <line x1="150" y1="130" x2="150" y2="390" stroke="white" stroke-width="4"/>
+  <!-- Hip guideline -->
+  <ellipse cx="150" cy="400" rx="90" ry="50" stroke="white" stroke-width="4" fill="none" opacity="0.9"/>
+  <text x="50" y="50" fill="white" font-size="16" font-weight="bold">BACK VIEW</text>
+</svg>

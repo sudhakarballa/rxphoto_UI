@@ -9,9 +9,14 @@ import GenerateElements from "../common/generateElements";
 import { Client } from "../models/client";
 import { toast } from "react-toastify";
 import clientsData from "../mockData/clients.json";
-import faceOverlay from "./images/face.png";
+import faceFrontOverlay from "./images/face-front.svg";
+import faceLeftOverlay from "./images/face-left-profile.svg";
+import faceRightOverlay from "./images/face-right-profile.svg";
+import bodyFrontOverlay from "./images/body-front.svg";
+import bodyBackOverlay from "./images/body-back.svg";
+import throatOverlay from "./images/throat-profile.svg";
+import masculineOverlay from "./images/face-masculine.svg";
 import { PatientService } from "../services/PatientService"
-import { ErrorBoundary } from "react-error-boundary";
 
 let PatientFormData: {
   FirstName: string;
@@ -47,6 +52,11 @@ const patientSvc = new PatientService();
   const [signaturePreview, setSignaturePreview] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [isSubmitClicked, setIsSubmitClicked] = useState(false);
+  const [selectedProcedure, setSelectedProcedure] = useState<string>("");
+  const [currentAngle, setCurrentAngle] = useState<string>("");
+  const [capturedPhotos, setCapturedPhotos] = useState<{[key: string]: string}>({});
+  const [requiredAngles, setRequiredAngles] = useState<string[]>([]);
+  const [cameraFacing, setCameraFacing] = useState<"user" | "environment">("user");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -89,7 +99,7 @@ const patientSvc = new PatientService();
       isSideByItem: true,
     },
     {
-      key: "procedure Name",
+      key: "Procedure Name",
       value: "procedureName",
       isRequired: true,
       elementSize: 6,
@@ -121,7 +131,7 @@ const patientSvc = new PatientService();
   useEffect(() => {
     if (cameraActive) {
       navigator.mediaDevices
-        .getUserMedia({ video: { facingMode: "environment" } })
+        .getUserMedia({ video: { facingMode: cameraFacing } })
         .then((stream) => {
           streamRef.current = stream;
           if (videoRef.current) {
@@ -150,6 +160,7 @@ const patientSvc = new PatientService();
     if (selectedItem?.id > 0) {
       setPhotoPreview(selectedItem.avatar);
       setSignaturePreview(selectedItem.signature || null);
+      setSelectedProcedure(selectedItem.procedureName || "");
       setValue("dob" as never, selectedItem.dob as never);
       setValue("lastVisit" as never, selectedItem.lastVisit as never);
     }
@@ -230,9 +241,13 @@ const patientSvc = new PatientService();
 
   const onSubmit = (item: any) => {
     setIsSubmitClicked(true);
-    debugger;
 
-    if (!photoPreview) {
+    if (requiredAngles.length > 0 && Object.keys(capturedPhotos).length < requiredAngles.length) {
+      toast.error(`Please capture all required photos: ${requiredAngles.join(", ")}`);
+      return;
+    }
+
+    if (!photoPreview && Object.keys(capturedPhotos).length === 0) {
       toast.error("Photo is required.");
       return;
     }
@@ -287,8 +302,39 @@ const patientSvc = new PatientService();
     }
   };
 
+  const validatePhotoAlignment = (imageData: string, angle: string): boolean => {
+    // Simulate more realistic validation that fails more often to demonstrate warnings
+    const validationRules = {
+      'Left Profile': () => {
+        // For left profile, check if face is turned left
+        return Math.random() > 0.6; // 40% success rate - more failures to show warnings
+      },
+      'Right Profile': () => {
+        // For right profile, check if face is turned right
+        return Math.random() > 0.6; // 40% success rate
+      },
+      'Front': () => {
+        // For front view, check if face is centered
+        return Math.random() > 0.5; // 50% success rate
+      },
+      'Back': () => {
+        // For back view, validate back of head/body is visible
+        return Math.random() > 0.6; // 40% success rate
+      },
+      'Left Side': () => {
+        return Math.random() > 0.6; // 40% success rate
+      },
+      'Right Side': () => {
+        return Math.random() > 0.6; // 40% success rate
+      }
+    };
+
+    const validator = validationRules[angle as keyof typeof validationRules];
+    return validator ? validator() : Math.random() > 0.5;
+  };
+
   const handleCapturePhoto = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current || !currentAngle) return;
     const width = videoRef.current.videoWidth;
     const height = videoRef.current.videoHeight;
 
@@ -300,8 +346,32 @@ const patientSvc = new PatientService();
 
     ctx.drawImage(videoRef.current, 0, 0, width, height);
     const dataUrl = canvasRef.current.toDataURL("image/png");
-    setPhotoPreview(dataUrl);
-    setCameraActive(false);
+    
+    if (!validatePhotoAlignment(dataUrl, currentAngle)) {
+      const errorMessages = {
+        'Left Profile': 'Please turn your head to the left and show your left profile',
+        'Right Profile': 'Please turn your head to the right and show your right profile', 
+        'Front': 'Please face the camera directly',
+        'Back': 'Please turn around and show your back',
+        'Left Side': 'Please turn your body to show the left side',
+        'Right Side': 'Please turn your body to show the right side'
+      };
+      
+      const message = errorMessages[currentAngle as keyof typeof errorMessages] || `Please align properly for ${currentAngle} angle`;
+      toast.error(message);
+      return;
+    }
+    
+    setCapturedPhotos(prev => ({ ...prev, [currentAngle]: dataUrl }));
+    toast.success(`${currentAngle} photo captured!`);
+    
+    const nextAngleIndex = requiredAngles.indexOf(currentAngle) + 1;
+    if (nextAngleIndex < requiredAngles.length) {
+      setCurrentAngle(requiredAngles[nextAngleIndex]);
+    } else {
+      setPhotoPreview(dataUrl);
+      setCameraActive(false);
+    }
   };
 
   const handleClose = () => {
@@ -335,7 +405,7 @@ const patientSvc = new PatientService();
         value: doctorId,
       }));
     }
-    if (item.key === "procedure Name") {
+    if (item.key === "Procedure Name") {
       return procedure.map(({ procedureId, procedureName }) => ({
         name: procedureName,
         value: procedureId,
@@ -344,7 +414,54 @@ const patientSvc = new PatientService();
     return [];
   };
 
+  const getProcedureAngles = (procedure: string) => {
+    switch (procedure) {
+      case "Brow Lift":
+        return ["Front", "Left Profile", "Right Profile"];
+      case "Body Feminisation":
+        return ["Front", "Back", "Left Side", "Right Side"];
+      case "Voice and Throat":
+        return ["Front", "Left Profile", "Right Profile"];
+      case "Facial Masculinisation":
+        return ["Front", "Left Profile", "Right Profile", "3/4 Left", "3/4 Right"];
+      default:
+        return ["Front"];
+    }
+  };
+
+  const getOverlayImage = () => {
+    const key = `${selectedProcedure}-${currentAngle}`;
+    switch (key) {
+      case "Brow Lift-Front":
+      case "Facial Masculinisation-Front":
+        return faceFrontOverlay;
+      case "Brow Lift-Left Profile":
+      case "Facial Masculinisation-Left Profile":
+      case "Voice and Throat-Left Profile":
+        return faceLeftOverlay;
+      case "Brow Lift-Right Profile":
+      case "Facial Masculinisation-Right Profile":
+      case "Voice and Throat-Right Profile":
+        return faceRightOverlay;
+      case "Body Feminisation-Front":
+        return bodyFrontOverlay;
+      case "Body Feminisation-Back":
+        return bodyBackOverlay;
+      case "Voice and Throat-Front":
+        return throatOverlay;
+      default:
+        return faceFrontOverlay;
+    }
+  };
+
   const onChange = (value: any, item: any) => {
+    if (item.key === "Procedure Name") {
+      setSelectedProcedure(value);
+      const angles = getProcedureAngles(value);
+      setRequiredAngles(angles);
+      setCurrentAngle(angles[0] || "");
+      setCapturedPhotos({});
+    }
     if (item.key === "DOB") {
       const date = new Date(value);
       if (!isNaN(date.getTime())) {
@@ -430,19 +547,91 @@ const patientSvc = new PatientService();
                             objectFit: "cover",
                           }}
                         />
-                        <img
-                          src={faceOverlay}
-                          alt="Overlay"
+                        {selectedProcedure && (
+                          <img
+                            src={getOverlayImage()}
+                            alt={`${selectedProcedure} Guide`}
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              width: "100%",
+                              height: "100%",
+                              pointerEvents: "none",
+                              opacity: 0.6,
+                              objectFit: "contain",
+                            }}
+                          />
+                        )}
+                        <div
                           style={{
                             position: "absolute",
-                            top: 0,
-                            left: 0,
-                            width: "100%",
-                            height: "100%",
-                            pointerEvents: "none",
-                            opacity: 0.6,
+                            top: 10,
+                            left: 10,
+                            color: "white",
+                            background: "rgba(0,0,0,0.8)",
+                            padding: "10px 15px",
+                            borderRadius: "5px",
+                            fontSize: "14px",
                           }}
-                        />
+                        >
+                          <div>{selectedProcedure}</div>
+                          <div>Angle: {currentAngle}</div>
+                          <div>{Object.keys(capturedPhotos).length + 1}/{requiredAngles.length}</div>
+                        </div>
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: 10,
+                            right: 10,
+                            color: "white",
+                            background: "rgba(0,0,0,0.8)",
+                            padding: "10px 15px",
+                            borderRadius: "5px",
+                            fontSize: "12px",
+                            maxWidth: "150px",
+                          }}
+                        >
+                          {(() => {
+                            switch (currentAngle) {
+                              case "Front":
+                                return "Face camera directly";
+                              case "Left Profile":
+                                return "Turn head left, show profile";
+                              case "Right Profile":
+                                return "Turn head right, show profile";
+                              case "Back":
+                                return "Turn around, show back";
+                              case "Left Side":
+                                return "Turn body left";
+                              case "Right Side":
+                                return "Turn body right";
+                              default:
+                                return "Align with overlay";
+                            }
+                          })()}
+                        </div>
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "50%",
+                            right: 10,
+                            transform: "translateY(-50%)",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-secondary"
+                            onClick={() => {
+                              setCameraFacing(prev => prev === "user" ? "environment" : "user");
+                              setCameraActive(false);
+                              setTimeout(() => setCameraActive(true), 100);
+                            }}
+                            style={{ padding: "8px" }}
+                          >
+                            🔄
+                          </button>
+                        </div>
                         <div
                           style={{
                             position: "absolute",
@@ -452,13 +641,24 @@ const patientSvc = new PatientService();
                             justifyContent: "center",
                           }}
                         >
-                          <button
-                            type="button"
-                            className="btn btn-light"
-                            onClick={handleCapturePhoto}
-                          >
-                            Capture Photo
-                          </button>
+                          <div className="d-flex gap-2">
+                            <button
+                              type="button"
+                              className="btn btn-light"
+                              onClick={handleCapturePhoto}
+                            >
+                              Capture {currentAngle}
+                            </button>
+                            {Object.keys(capturedPhotos).length > 0 && (
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setCameraActive(false)}
+                              >
+                                Done ({Object.keys(capturedPhotos).length})
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ) : (
@@ -504,22 +704,63 @@ const patientSvc = new PatientService();
                         </>
                       )}
                       {isMobile && !cameraActive && (
-                        <button
-                          type="button"
-                          className="btn btn-outline-primary btn-sm"
-                          onClick={() => setCameraActive(true)}
-                        >
-                          Take Photo
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-outline-primary btn-sm"
+                            onClick={() => {
+                              if (!selectedProcedure) {
+                                toast.error("Please select a Procedure first");
+                                return;
+                              }
+                              const angles = getProcedureAngles(selectedProcedure);
+                              setRequiredAngles(angles);
+                              setCurrentAngle(angles[0] || "");
+                              setCameraActive(true);
+                            }}
+                          >
+                            Take Photos
+                          </button>
+                          {selectedProcedure && (
+                            <div className="mt-2 small text-muted">
+                              Required: {getProcedureAngles(selectedProcedure).join(", ")}
+                            </div>
+                          )}
+                        </>
                       )}
-                      {!photoPreview && isSubmitClicked && (
+                      {!photoPreview && Object.keys(capturedPhotos).length === 0 && isSubmitClicked && (
                         <div className="text-danger small mt-1">
-                          Photo is required.
+                          Photos are required.
                         </div>
                       )}
                     </div>
                   </div>
                 </div>
+
+                {/* Captured Photos Gallery */}
+                {Object.keys(capturedPhotos).length > 0 && (
+                  <div className="mb-3">
+                    <label className="form-label">Captured Photos</label>
+                    <div className="d-flex flex-wrap gap-2">
+                      {Object.entries(capturedPhotos).map(([angle, photo]) => (
+                        <div key={angle} className="text-center">
+                          <img
+                            src={photo}
+                            alt={angle}
+                            style={{
+                              width: 80,
+                              height: 80,
+                              objectFit: "cover",
+                              borderRadius: 8,
+                              border: "2px solid #ddd",
+                            }}
+                          />
+                          <div className="small mt-1">{angle}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Form Fields */}
                 <GenerateElements
