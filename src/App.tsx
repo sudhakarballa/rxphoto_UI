@@ -1,13 +1,12 @@
-import ClientsList from "./components/ClientsList";
-import { ToastContainer, toast } from "react-toastify";
+import ClientAddEdit from "./components/ClientAddEdit";
+import { ToastContainer } from "react-toastify";
 import "./App.css";
 
 function App() {
   return (
     <div>
-      <ClientsList />
+      <ClientAddEdit />
       <ToastContainer />
-      {/* <ClickSend/> */}
     </div>
   );
 }

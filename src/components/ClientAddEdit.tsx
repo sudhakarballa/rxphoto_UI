@@ -6,9 +6,9 @@ import { useForm, FormProvider } from "react-hook-form";
 import * as Yup from "yup";
 import Util from "../others/util";
 import GenerateElements from "../common/generateElements";
-import { Client } from "../models/client";
+
 import { toast } from "react-toastify";
-import clientsData from "../mockData/clients.json";
+
 import faceFrontOverlay from "./images/face-front.svg";
 import faceLeftOverlay from "./images/face-left-profile.svg";
 import faceRightOverlay from "./images/face-right-profile.svg";
@@ -16,41 +16,26 @@ import bodyFrontOverlay from "./images/body-front.svg";
 import bodyBackOverlay from "./images/body-back.svg";
 import throatOverlay from "./images/throat-profile.svg";
 import masculineOverlay from "./images/face-masculine.svg";
-import { PatientService } from "../services/PatientService"
+import { SharePointService } from "../services/SharePointService"
 
-let PatientFormData: {
-  FirstName: string;
-  LastName: string;
-  Email: string;
-  PatientId: string;
-  ProceduralName:string;
-  DateOfBirth:string;
-  id:number;
-}
 
-type params = {
-  showClientAddEdit: any;
-  setShowClientAddEdit: any;
-  selectedItem: any;
-  setSelectedItem: any;
-  onSave: any;
-};
 
-const ClientAddEdit = (props: params) => {
-  const {
-    showClientAddEdit,
-    setShowClientAddEdit,
-    selectedItem,
-    setSelectedItem,
-    onSave,
-  } = props;
-const patientSvc = new PatientService();
-  const header = (selectedItem.id > 0 ? "Edit" : "Add") + " Client";
+const ClientAddEdit = () => {
+const sharePointSvc = new SharePointService();
+  const header = "Patient Information Form";
+
 
   const [cameraActive, setCameraActive] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [signaturePreview, setSignaturePreview] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [showSignaturePad, setShowSignaturePad] = useState(false);
+
+  useEffect(() => {
+    if (isMobile) {
+      setShowSignaturePad(true);
+    }
+  }, [isMobile]);
   const [isSubmitClicked, setIsSubmitClicked] = useState(false);
   const [selectedProcedure, setSelectedProcedure] = useState<string>("");
   const [currentAngle, setCurrentAngle] = useState<string>("");
@@ -89,11 +74,11 @@ const patientSvc = new PatientService();
       value: "email",
       isRequired: true,
       elementSize: 6,
-      sidebyItem: "Patient Id",
+      sidebyItem: "Mobile Number",
     },
     {
-      key: "Patient Id",
-      value: "patientId",
+      key: "Mobile Number",
+      value: "mobileNumber",
       isRequired: true,
       elementSize: 6,
       isSideByItem: true,
@@ -103,15 +88,16 @@ const patientSvc = new PatientService();
       value: "procedureName",
       isRequired: true,
       elementSize: 6,
-      sidebyItem: "DateOfBirth",
+      sidebyItem: "Date of Birth",
        type: ElementType.dropdown
     },
     {
-      key: "DateOfBirth",
+      key: "Date of Birth",
       value: "dateOfBirth",
       isRequired: true,
       elementSize: 6,
       isSideByItem: true,
+      type: ElementType.datepicker
     }
   ];
 
@@ -154,17 +140,9 @@ const patientSvc = new PatientService();
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [cameraActive]);
+  }, [cameraActive, cameraFacing]);
 
-  useEffect(() => {
-    if (selectedItem?.id > 0) {
-      setPhotoPreview(selectedItem.avatar);
-      setSignaturePreview(selectedItem.signature || null);
-      setSelectedProcedure(selectedItem.procedureName || "");
-      setValue("dob" as never, selectedItem.dob as never);
-      setValue("lastVisit" as never, selectedItem.lastVisit as never);
-    }
-  }, [selectedItem]);
+  // Initialize as new form - no existing data to load
 
   const startDrawing = (event: React.MouseEvent | React.TouchEvent) => {
     isDrawing.current = true;
@@ -239,7 +217,7 @@ const patientSvc = new PatientService();
     return canvas.toDataURL("image/png");
   };
 
-  const onSubmit = (item: any) => {
+  const onSubmit = async (item: any) => {
     setIsSubmitClicked(true);
 
     if (requiredAngles.length > 0 && Object.keys(capturedPhotos).length < requiredAngles.length) {
@@ -252,52 +230,77 @@ const patientSvc = new PatientService();
       return;
     }
 
-    // On mobile, save signature from canvas automatically here
+    // Get final signature
     let finalSignature = signaturePreview;
-    if (isMobile) {
+    if (!finalSignature) {
       const dataUrl = getSignatureDataUrl();
       if (!dataUrl) {
-        toast.error("Signature is required on mobile.");
+        toast.error("Signature is required.");
         return;
       }
       finalSignature = dataUrl;
-      setSignaturePreview(dataUrl); // Save for preview after submit
     }
 
-    let list: Array<Client> = clientsData as any;
-    let obj: Client = new Client();
-    Util.toClassObject(obj, item);
-    let patient:any;
-    obj.id = selectedItem.id ?? list.length + 1;
-    //obj.avatar = photoPreview;
-    //obj.signature = finalSignature || null;
-    //obj.name = obj.firstName + " " + obj.lastName;
-    
-    debugger
-    console.log(obj);
+    console.log('Submitting form data:', item);
 
 
-    if (selectedItem.id > 0) {
-      const index = list.findIndex((i) => i.id === selectedItem.id);
-      if (index !== -1) list[index] = { ...list[index], ...obj };
-      toast.success("Client updated successfully");
-    } else {
-      list.push(obj);
-      patientSvc.postItem(obj);
-      toast.success("Client added successfully");
+    // Submit to SharePoint
+    try {
+      const sharePointSuccess = await sharePointSvc.submitPatientForm(
+        item,
+        capturedPhotos,
+        finalSignature || undefined
+      );
+
+      if (sharePointSuccess) {
+        toast.success("Form submitted successfully!");
+        setTimeout(() => {
+          if (window.confirm("Form submitted successfully! Would you like to submit another form?")) {
+            window.location.reload();
+          }
+        }, 1000);
+      } else {
+        toast.error("Failed to submit form. Please try again.");
+      }
+    } catch (error) {
+      console.error('Form submission error:', error);
+      toast.error("Error submitting form. Please check your connection.");
     }
-
-    localStorage.setItem("clientsList", JSON.stringify(list));
-    setShowClientAddEdit(false);
-    setSelectedItem(new Client());
-    onSave();
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      // Handle multiple file uploads
+      const newPhotos: {[key: string]: string} = {};
+      const requiredAnglesForProcedure = getProcedureAngles(selectedProcedure);
+      
+      Array.from(files).forEach((file, index) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const angleName = requiredAnglesForProcedure[index] || `Photo ${index + 1}`;
+          newPhotos[angleName] = reader.result as string;
+          
+          // Update captured photos
+          setCapturedPhotos(prev => ({ ...prev, ...newPhotos }));
+          
+          // Set first photo as preview
+          if (index === 0) {
+            setPhotoPreview(reader.result as string);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  };
+
+  const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => setPhotoPreview(reader.result as string);
+      reader.onloadend = () => {
+        setSignaturePreview(reader.result as string);
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -374,10 +377,7 @@ const patientSvc = new PatientService();
     }
   };
 
-  const handleClose = () => {
-    setShowClientAddEdit(false);
-    setCameraActive(false);
-  };
+
 
   const getDropdownvalues = (item: any) => {
     const procedure=[
@@ -387,24 +387,7 @@ const patientSvc = new PatientService();
       { procedureId: "Facial Masculinisation", procedureName: "Facial Masculinisation" }
     ]
 
-    const doctors = [
-      { doctorId: 1, doctorName: "Dr. Ayesha Khan" },
-      { doctorId: 2, doctorName: "Dr. Rajeev Mehta" },
-      { doctorId: 3, doctorName: "Dr. Linda Gomes" },
-      { doctorId: 4, doctorName: "Dr. Omar Sheikh" },
-      { doctorId: 5, doctorName: "Dr. Neha Patil" },
-    ];
-    const genders = [
-      { genderId: 1, genderName: "Male" },
-      { genderId: 2, genderName: "Female" },
-      { genderId: 3, genderName: "Other" },
-    ];
-    if (item.key === "Created By" || item.key === "Referring Doctor") {
-      return doctors.map(({ doctorId, doctorName }) => ({
-        name: doctorName,
-        value: doctorId,
-      }));
-    }
+
     if (item.key === "Procedure Name") {
       return procedure.map(({ procedureId, procedureName }) => ({
         name: procedureName,
@@ -466,7 +449,7 @@ const patientSvc = new PatientService();
       const date = new Date(value);
       if (!isNaN(date.getTime())) {
         setValue("dob" as never, date as never);
-        setSelectedItem({ ...selectedItem, dob: date });
+
       }
       return;
     }
@@ -474,56 +457,64 @@ const patientSvc = new PatientService();
       const date = new Date(value);
       if (!isNaN(date.getTime())) {
         setValue("lastVisit" as never, date as never);
-        setSelectedItem({ ...selectedItem, lastVisit: date });
+
       }
       return;
     }
     setValue(item.value as never, value as never);
-    setSelectedItem({ ...selectedItem, [item.value]: value });
+
   };
 
   return (
     <FormProvider {...methods}>
-      <div
-        className={isMobile ? "" : "modal show fade d-block"}
-        style={
-          isMobile
-            ? {
-                position: "fixed",
-                top: 0,
-                left: 0,
-                width: "100%",
-                height: "100%",
-                background: "white",
-                zIndex: 1050,
-                overflowY: "auto",
-              }
-            : {}
-        }
+      <div 
+        className="min-vh-100" 
+        style={{ 
+          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          padding: isMobile ? "10px" : "20px"
+        }}
       >
-        <div
-          className={
-            isMobile ? "p-3" : "modal-dialog modal-dialog-centered modal-lg"
-          }
-        >
-          <div
-            className="modal-content"
-            style={isMobile ? { border: "none" } : {}}
-          >
+        <div className="container-fluid">
+          <div className="row justify-content-center">
+            <div className="col-12 col-md-10 col-lg-8 col-xl-6">
+              <div 
+                className="card shadow-lg border-0" 
+                style={{ 
+                  borderRadius: "20px",
+                  overflow: "hidden",
+                  backdropFilter: "blur(10px)",
+                  backgroundColor: "rgba(255, 255, 255, 0.95)"
+                }}
+              >
             <form onSubmit={handleSubmit(onSubmit)}>
-              <div className="modal-header">
-                <h5 className="modal-title">{header}</h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={handleClose}
-                />
+              <div 
+                className="card-header text-white text-center border-0" 
+                style={{ 
+                  background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                  padding: "30px 20px"
+                }}
+              >
+                <div className="mb-2">
+                  <i className="bi bi-clipboard-heart" style={{ fontSize: "2.5rem" }}></i>
+                </div>
+                <h3 className="mb-2 fw-bold">{header}</h3>
+                <p className="mb-0 opacity-90">Please fill out all required information</p>
               </div>
 
-              <div className="modal-body">
+              <div className="card-body" style={{ padding: isMobile ? "15px" : "25px" }}>
                 {/* Photo Capture Section */}
                 <div className="text-center mb-3">
-                  <div className="d-flex flex-column align-items-center gap-3">
+                  <div 
+                    className="p-2 rounded-3 mb-2" 
+                    style={{ 
+                      background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+                      color: "white"
+                    }}
+                  >
+                    <i className="bi bi-camera-fill mb-1" style={{ fontSize: "1.2rem" }}></i>
+                    <h6 className="mb-0">Photo Capture</h6>
+                  </div>
+                  <div className="d-flex flex-column align-items-center gap-2">
                     {isMobile && cameraActive ? (
                       <div
                         style={{
@@ -661,23 +652,162 @@ const patientSvc = new PatientService();
                           </div>
                         </div>
                       </div>
+                    ) : !isMobile && cameraActive ? (
+                      <div
+                        style={{
+                          position: "relative",
+                          width: "100%",
+                          maxWidth: "500px",
+                          height: "400px",
+                          backgroundColor: "black",
+                          borderRadius: "20px",
+                          overflow: "hidden",
+                          margin: "0 auto"
+                        }}
+                      >
+                        <video
+                          ref={videoRef}
+                          autoPlay
+                          playsInline
+                          muted
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                          }}
+                        />
+                        {selectedProcedure && (
+                          <img
+                            src={getOverlayImage()}
+                            alt={`${selectedProcedure} Guide`}
+                            style={{
+                              position: "absolute",
+                              top: 0,
+                              left: 0,
+                              width: "100%",
+                              height: "100%",
+                              pointerEvents: "none",
+                              opacity: 0.6,
+                              objectFit: "contain",
+                            }}
+                          />
+                        )}
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: 10,
+                            left: 10,
+                            color: "white",
+                            background: "rgba(0,0,0,0.8)",
+                            padding: "10px 15px",
+                            borderRadius: "5px",
+                            fontSize: "14px",
+                          }}
+                        >
+                          <div>{selectedProcedure}</div>
+                          <div>Angle: {currentAngle}</div>
+                          <div>{Object.keys(capturedPhotos).length + 1}/{requiredAngles.length}</div>
+                        </div>
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: 10,
+                            right: 10,
+                            color: "white",
+                            background: "rgba(0,0,0,0.8)",
+                            padding: "10px 15px",
+                            borderRadius: "5px",
+                            fontSize: "12px",
+                            maxWidth: "150px",
+                          }}
+                        >
+                          {(() => {
+                            switch (currentAngle) {
+                              case "Front":
+                                return "Face camera directly";
+                              case "Left Profile":
+                                return "Turn head left, show profile";
+                              case "Right Profile":
+                                return "Turn head right, show profile";
+                              case "Back":
+                                return "Turn around, show back";
+                              case "Left Side":
+                                return "Turn body left";
+                              case "Right Side":
+                                return "Turn body right";
+                              default:
+                                return "Align with overlay";
+                            }
+                          })()}
+                        </div>
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "50%",
+                            right: 10,
+                            transform: "translateY(-50%)",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-secondary"
+                            onClick={() => {
+                              setCameraFacing(prev => prev === "user" ? "environment" : "user");
+                              setCameraActive(false);
+                              setTimeout(() => setCameraActive(true), 100);
+                            }}
+                            style={{ padding: "8px" }}
+                          >
+                            🔄
+                          </button>
+                        </div>
+                        <div
+                          style={{
+                            position: "absolute",
+                            bottom: 20,
+                            width: "100%",
+                            display: "flex",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <div className="d-flex gap-2">
+                            <button
+                              type="button"
+                              className="btn btn-light"
+                              onClick={handleCapturePhoto}
+                            >
+                              Capture {currentAngle}
+                            </button>
+                            {Object.keys(capturedPhotos).length > 0 && (
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => setCameraActive(false)}
+                              >
+                                Done ({Object.keys(capturedPhotos).length})
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     ) : (
                       <div
-                        className="rounded-circle bg-light position-relative d-flex justify-content-center align-items-center"
+                        className="position-relative d-flex justify-content-center align-items-center shadow-sm"
                         style={{
-                          width: 100,
-                          height: 100,
+                          width: isMobile ? 80 : 100,
+                          height: isMobile ? 80 : 100,
+                          borderRadius: "15px",
+                          background: photoPreview ? "none" : "linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)",
                           backgroundSize: "cover",
-                          backgroundImage: photoPreview
-                            ? `url(${photoPreview})`
-                            : "none",
+                          backgroundImage: photoPreview ? `url(${photoPreview})` : "none",
+                          border: "2px solid white",
                         }}
                       >
                         {!photoPreview && (
-                          <i
-                            className="bi bi-camera"
-                            style={{ fontSize: "2rem", opacity: 0.3 }}
-                          />
+                          <div className="text-center">
+                            <i className="bi bi-camera" style={{ fontSize: "1.8rem", color: "#667eea" }}></i>
+                            <div className="small" style={{ color: "#667eea" }}>No Photo</div>
+                          </div>
                         )}
                       </div>
                     )}
@@ -685,29 +815,88 @@ const patientSvc = new PatientService();
                     <div>
                       {!isMobile && (
                         <>
-                          <small className="d-block mb-1 text-muted">
-                            400x400 for best resolution
-                          </small>
-                          <label
-                            htmlFor="photoInput"
-                            className="btn btn-outline-primary btn-sm"
-                          >
-                            Upload New
-                          </label>
-                          <input
-                            type="file"
-                            id="photoInput"
-                            accept="image/*"
-                            style={{ display: "none" }}
-                            onChange={handleFileChange}
-                          />
+                          <div className="d-flex gap-2 flex-wrap justify-content-center">
+                            <button
+                              type="button"
+                              className="btn btn-sm"
+                              style={{
+                                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                                border: "none",
+                                color: "white",
+                                borderRadius: "8px",
+                                padding: "6px 16px",
+                                fontSize: "0.85rem"
+                              }}
+                              onClick={() => {
+                                if (!selectedProcedure) {
+                                  toast.error("Please select a Procedure first");
+                                  return;
+                                }
+                                const angles = getProcedureAngles(selectedProcedure);
+                                setRequiredAngles(angles);
+                                setCurrentAngle(angles[0] || "");
+                                setCameraActive(true);
+                              }}
+                            >
+                              <i className="bi bi-camera me-1"></i>
+                              Take Photos
+                            </button>
+                            <label
+                              htmlFor="photoInput"
+                              className="btn btn-sm"
+                              style={{
+                                background: "linear-gradient(135deg, #764ba2 0%, #667eea 100%)",
+                                border: "none",
+                                color: "white",
+                                borderRadius: "8px",
+                                padding: "6px 16px",
+                                fontSize: "0.85rem"
+                              }}
+                            >
+                              <i className="bi bi-upload me-1"></i>
+                              Upload Photos
+                            </label>
+                            <input
+                              type="file"
+                              id="photoInput"
+                              accept="image/*"
+                              multiple
+                              style={{ display: "none" }}
+                              onChange={handleFileChange}
+                            />
+                          </div>
+                          {selectedProcedure && (
+                            <div 
+                              className="mt-3 p-3 rounded-3" 
+                              style={{ 
+                                background: "rgba(102, 126, 234, 0.1)",
+                                border: "1px solid rgba(102, 126, 234, 0.2)"
+                              }}
+                            >
+                              <div className="small fw-semibold text-primary mb-1">
+                                <i className="bi bi-info-circle me-1"></i>
+                                Required Angles:
+                              </div>
+                              <div className="small text-muted">
+                                {getProcedureAngles(selectedProcedure).join(", ")}
+                              </div>
+                            </div>
+                          )}
                         </>
                       )}
                       {isMobile && !cameraActive && (
                         <>
                           <button
                             type="button"
-                            className="btn btn-outline-primary btn-sm"
+                            className="btn btn-sm"
+                            style={{
+                              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                              border: "none",
+                              color: "white",
+                              borderRadius: "8px",
+                              padding: "6px 16px",
+                              fontSize: "0.85rem"
+                            }}
                             onClick={() => {
                               if (!selectedProcedure) {
                                 toast.error("Please select a Procedure first");
@@ -719,14 +908,36 @@ const patientSvc = new PatientService();
                               setCameraActive(true);
                             }}
                           >
+                            <i className="bi bi-camera me-1"></i>
                             Take Photos
                           </button>
                           {selectedProcedure && (
-                            <div className="mt-2 small text-muted">
-                              Required: {getProcedureAngles(selectedProcedure).join(", ")}
+                            <div 
+                              className="mt-3 p-3 rounded-3" 
+                              style={{ 
+                                background: "rgba(102, 126, 234, 0.1)",
+                                border: "1px solid rgba(102, 126, 234, 0.2)"
+                              }}
+                            >
+                              <div className="small fw-semibold text-primary mb-1">
+                                <i className="bi bi-info-circle me-1"></i>
+                                Required Angles:
+                              </div>
+                              <div className="small text-muted">
+                                {getProcedureAngles(selectedProcedure).join(", ")}
+                              </div>
                             </div>
                           )}
                         </>
+                      )}
+                      {cameraActive && (
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary mt-2"
+                          onClick={() => setCameraActive(false)}
+                        >
+                          Cancel Camera
+                        </button>
                       )}
                       {!photoPreview && Object.keys(capturedPhotos).length === 0 && isSubmitClicked && (
                         <div className="text-danger small mt-1">
@@ -740,22 +951,38 @@ const patientSvc = new PatientService();
                 {/* Captured Photos Gallery */}
                 {Object.keys(capturedPhotos).length > 0 && (
                   <div className="mb-3">
-                    <label className="form-label">Captured Photos</label>
-                    <div className="d-flex flex-wrap gap-2">
+                    <div 
+                      className="p-2 rounded-3 mb-2" 
+                      style={{ 
+                        background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
+                        color: "white"
+                      }}
+                    >
+                      <i className="bi bi-images me-1" style={{ fontSize: "1rem" }}></i>
+                      <small>Captured Photos ({Object.keys(capturedPhotos).length})</small>
+                    </div>
+                    <div className="d-flex flex-wrap gap-3 justify-content-center">
                       {Object.entries(capturedPhotos).map(([angle, photo]) => (
                         <div key={angle} className="text-center">
-                          <img
-                            src={photo}
-                            alt={angle}
+                          <div 
+                            className="position-relative shadow-sm"
                             style={{
-                              width: 80,
-                              height: 80,
-                              objectFit: "cover",
-                              borderRadius: 8,
-                              border: "2px solid #ddd",
+                              borderRadius: "15px",
+                              overflow: "hidden",
+                              border: "3px solid white"
                             }}
-                          />
-                          <div className="small mt-1">{angle}</div>
+                          >
+                            <img
+                              src={photo}
+                              alt={angle}
+                              style={{
+                                width: isMobile ? 60 : 70,
+                                height: isMobile ? 60 : 70,
+                                objectFit: "cover",
+                              }}
+                            />
+                          </div>
+                          <div className="small mt-2 fw-semibold text-primary">{angle}</div>
                         </div>
                       ))}
                     </div>
@@ -765,86 +992,215 @@ const patientSvc = new PatientService();
                 {/* Form Fields */}
                 <GenerateElements
                   controlsList={controlsList}
-                  selectedItem={selectedItem}
+                  selectedItem={{}}
                   onChange={onChange}
                   getListofItemsForDropdown={getDropdownvalues}
                 />
 
-                {/* Signature Capture Section for Mobile */}
-                {isMobile && (
-                  <div className="mb-4">
-                    <label className="form-label">Signature (draw below)</label>
-                    <div
-                      style={{
-                        border: "1px solid #ccc",
-                        borderRadius: 4,
-                        position: "relative",
-                        width: "100%",
-                        height: 200,
-                        touchAction: "none",
-                      }}
-                    >
-                      {!signaturePreview && (
-                        <canvas
-                          ref={signatureCanvasRef}
-                          width={window.innerWidth - 40}
-                          height={200}
-                          style={{ width: "100%", height: "100%" }}
-                          onMouseDown={startDrawing}
-                          onMouseMove={draw}
-                          onMouseUp={stopDrawing}
-                          onMouseLeave={stopDrawing}
-                          onTouchStart={startDrawing}
-                          onTouchMove={draw}
-                          onTouchEnd={stopDrawing}
-                        />
-                      )}
-
-                      {signaturePreview && (
+                {/* Signature Section */}
+                <div className="mb-3">
+                  <div 
+                    className="p-2 rounded-3 mb-2" 
+                    style={{ 
+                      background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)",
+                      color: "white"
+                    }}
+                  >
+                    <i className="bi bi-pen me-1" style={{ fontSize: "1rem" }}></i>
+                    <small>Digital Signature</small>
+                  </div>
+                  
+                  {signaturePreview ? (
+                    <div className="text-center">
+                      <div
+                        className="shadow-sm d-inline-block"
+                        style={{
+                          border: "2px solid rgba(102, 126, 234, 0.2)",
+                          borderRadius: "15px",
+                          background: "white",
+                          padding: "10px"
+                        }}
+                      >
                         <img
                           src={signaturePreview}
-                          alt="Signature Preview"
+                          alt="Signature"
                           style={{
-                            width: "100%",
-                            height: 200,
-                            objectFit: "contain",
+                            maxWidth: "300px",
+                            maxHeight: "150px",
+                            objectFit: "contain"
                           }}
                         />
-                      )}
+                      </div>
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          className="btn btn-outline-danger"
+                          style={{
+                            borderRadius: "10px",
+                            padding: "8px 20px",
+                            fontWeight: "500"
+                          }}
+                          onClick={() => {
+                            setSignaturePreview(null);
+                            clearSignature();
+                          }}
+                        >
+                          <i className="bi bi-trash me-1"></i>
+                          Clear Signature
+                        </button>
+                      </div>
                     </div>
-
-                    <div className="d-flex gap-2 mt-2">
-                      <button
-                        type="button"
-                        className="btn btn-outline-secondary btn-sm"
-                        onClick={clearSignature}
-                        hidden={selectedItem.id>0}
-                      >
-                        Clear
-                      </button>
+                  ) : (
+                    <div className="text-center">
+                      {!isMobile && (
+                        <div className="d-flex gap-2 flex-wrap justify-content-center mb-2">
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            style={{
+                              background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                              border: "none",
+                              color: "white",
+                              borderRadius: "8px",
+                              padding: "6px 16px",
+                              fontSize: "0.85rem"
+                            }}
+                            onClick={() => setShowSignaturePad(true)}
+                          >
+                            <i className="bi bi-pen me-1"></i>
+                            Draw
+                          </button>
+                          <label
+                            htmlFor="signatureUpload"
+                            className="btn btn-sm"
+                            style={{
+                              background: "linear-gradient(135deg, #764ba2 0%, #667eea 100%)",
+                              border: "none",
+                              color: "white",
+                              borderRadius: "8px",
+                              padding: "6px 16px",
+                              fontSize: "0.85rem"
+                            }}
+                          >
+                            <i className="bi bi-upload me-1"></i>
+                            Upload
+                          </label>
+                          <input
+                            type="file"
+                            id="signatureUpload"
+                            accept="image/*"
+                            style={{ display: "none" }}
+                            onChange={handleSignatureUpload}
+                          />
+                        </div>
+                      )}
+                      
+                      {(isMobile || showSignaturePad) && (
+                        <div
+                          className="shadow-sm"
+                          style={{
+                            border: "2px solid rgba(102, 126, 234, 0.2)",
+                            borderRadius: "15px",
+                            position: "relative",
+                            width: "100%",
+                            height: 120,
+                            touchAction: "none",
+                            background: "white"
+                          }}
+                        >
+                          <canvas
+                            ref={signatureCanvasRef}
+                            width={isMobile ? window.innerWidth - 40 : 600}
+                            height={120}
+                            style={{ width: "100%", height: "100%" }}
+                            onMouseDown={startDrawing}
+                            onMouseMove={draw}
+                            onMouseUp={stopDrawing}
+                            onMouseLeave={stopDrawing}
+                            onTouchStart={startDrawing}
+                            onTouchMove={draw}
+                            onTouchEnd={stopDrawing}
+                          />
+                        </div>
+                      )}
+                      
+                      {(isMobile || showSignaturePad) && (
+                        <div className="d-flex gap-2 mt-3 justify-content-center">
+                          <button
+                            type="button"
+                            className="btn btn-outline-danger"
+                            style={{
+                              borderRadius: "10px",
+                              padding: "8px 20px",
+                              fontWeight: "500"
+                            }}
+                            onClick={clearSignature}
+                          >
+                            <i className="bi bi-trash me-1"></i>
+                            Clear
+                          </button>
+                          {!isMobile && (
+                            <button
+                              type="button"
+                              className="btn btn-success"
+                              style={{
+                                borderRadius: "10px",
+                                padding: "8px 20px",
+                                fontWeight: "500"
+                              }}
+                              onClick={() => {
+                                const dataUrl = getSignatureDataUrl();
+                                if (dataUrl) {
+                                  setSignaturePreview(dataUrl);
+                                  setShowSignaturePad(false);
+                                } else {
+                                  toast.error("Please draw your signature first");
+                                }
+                              }}
+                            >
+                              <i className="bi bi-check me-1"></i>
+                              Save
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      
                       {isSubmitClicked && !signaturePreview && (
-                        <div className="text-danger small mt-1">
+                        <div className="text-danger small mt-2">
                           Signature is required.
                         </div>
                       )}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
-              <div className="modal-footer">
-                <button type="submit" className="btn btn-primary w-100">
-                  Submit
+              <div className="card-footer border-0" style={{ padding: isMobile ? "10px" : "15px" }}>
+                <button 
+                  type="submit" 
+                  className="btn w-100"
+                  style={{
+                    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                    border: "none",
+                    color: "white",
+                    borderRadius: "10px",
+                    padding: "12px 20px",
+                    fontSize: "1rem",
+                    fontWeight: "600"
+                  }}
+                >
+                  <i className="bi bi-check-circle me-2"></i>
+                  Submit Form
                 </button>
               </div>
             </form>
 
             <canvas ref={canvasRef} style={{ display: "none" }} />
+              </div>
+            </div>
           </div>
         </div>
       </div>
-
-      {!isMobile && <div className="modal-backdrop fade show" />}
     </FormProvider>
   );
 };

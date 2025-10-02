@@ -20,22 +20,27 @@ export const DatePickerWithValidation = (props: params) => {
 
     return (
         <>
-            <Picker
-                placeholderText="MM/DD/YYYY"
-                showIcon
-                dateFormat={"MM/d/yyyy"}
-                selected={selectedItem[item.value] ? new Date(selectedItem[item.value]) : selectedItem[item.value]}
-                className="form-control"
-                showTimeSelect={item.showTimeSelect}
-                disabled={disable}
-                {...register(item.value)}
-                onChange={(date:any) => 
-                    {
-                        
+            <div className="position-relative">
+                <Picker
+                    placeholderText="Select Date of Birth"
+                    showIcon
+                    dateFormat="MM/dd/yyyy"
+                    selected={selectedItem[item.value] ? new Date(selectedItem[item.value]) : null}
+                    className="form-control shadow-sm custom-datepicker"
+                    showTimeSelect={item.showTimeSelect}
+                    disabled={disable}
+                    maxDate={new Date()}
+                    showYearDropdown
+                    showMonthDropdown
+                    dropdownMode="select"
+                    yearDropdownItemNumber={100}
+                    scrollableYearDropdown
+                    {...register(item.value)}
+                    onChange={(date:any) => {
                         onChange(date as any)
-                    }
-                }
-            />
+                    }}
+                />
+            </div>
             <p className="text-danger" id={`validationMsgfor_${item.value}`}>{(errors as any)?.[item.value]?.message}</p>
         </>
     )
