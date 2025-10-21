@@ -134,3 +134,17 @@
   border-radius: 8px !important;
   font-weight: 600 !important;
 }
+
+/* Required field asterisk */
+.required::after {
+  content: "*";
+  color: red;
+  font-weight: bold;
+  margin-left: 2px;
+  white-space: nowrap;
+}
+
+/* Prevent form labels from wrapping */
+.col-form-label {
+  white-space: nowrap !important;
+}

@@ -234,13 +234,13 @@ const GenerateElements: React.FC<props> = (props) => {
 
   return (
     <>
-      {controlsList.map((item: IControl, index: number) =>
+      {controlsList.map((item: IControl, index: number) => (
         item.isSwitchableElement && !item.isSideByItem ? (
           switchableElement(item)
         ) : item.isControlInNewLine &&
           !item.isSidebyItemHavingCustomLabels &&
           !item.isSwitchableElement ? (
-          <div key={index}>
+          <div key={`control-${item.value}-${index}`}>
             {!item.dependentChildren && !item.isDependentChildren ? (
               <div>
                 <div className="form-group row" hidden={item.hidden}>
@@ -320,7 +320,7 @@ const GenerateElements: React.FC<props> = (props) => {
           </div>
         ) : item.sidebyItem ? (
           <>
-            <div className="form-group row" key={index} hidden={item.hidden}>
+            <div className="form-group row" key={`sideby-${item.value}-${index}`} hidden={item.hidden}>
               <div className="col-6">
                 <label
                   htmlFor="name"
@@ -381,7 +381,7 @@ const GenerateElements: React.FC<props> = (props) => {
             </div>
           </>
         ) : item.isSideByItem ? null : (
-          <div className="form-group row" key={index} hidden={item.hidden}>
+          <div className="form-group row" key={`${item.value}-${index}`} hidden={item.hidden}>
             <label
               style={{ textAlign: "left" }}
               hidden={item.hideLabel}
@@ -395,14 +395,14 @@ const GenerateElements: React.FC<props> = (props) => {
             </label>
             <div
               className={`col-sm-${item.elementSize ?? 11} errmessage`}
-              style={{ paddingBottom: "10px" }} hidden={item.hidden}
+              style={{ paddingBottom: "5px" }} hidden={item.hidden}
             >
               {getElement(item)}
             </div>
             {props.showDelete && <div>Delete</div>}
           </div>
         )
-      )}
+      ))}
     </>
   );
 };

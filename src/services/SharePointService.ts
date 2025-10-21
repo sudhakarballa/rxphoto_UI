@@ -1,93 +1,116 @@
-import axios from 'axios';
-
 export class SharePointService {
-  private siteUrl: string;
-  private listName: string;
-  private accessToken: string;
+  private clientId = 'cccd3fbd-75b2-494c-8bb4-4250628ddf33';
+  private tenantId = '9dde22fd-a45c-44b6-aef1-d110a7162789';
+  private clientSecret = '0ec12d8d-2396-4379-800f-b8cf71d6773d';
 
-  constructor() {
-    // Configure these based on your SharePoint setup
-    this.siteUrl = process.env.REACT_APP_SHAREPOINT_SITE_URL || '';
-    this.listName = process.env.REACT_APP_SHAREPOINT_LIST_NAME || 'PatientForms';
-    this.accessToken = process.env.REACT_APP_SHAREPOINT_ACCESS_TOKEN || '';
-  }
+  private accessToken: string | null = null;
 
-  // Get access token using client credentials
   private async getAccessToken(): Promise<string> {
+    if (this.accessToken) return this.accessToken;
+    
     try {
-      const tokenUrl = `https://accounts.accesscontrol.windows.net/${process.env.REACT_APP_TENANT_ID}/tokens/OAuth/2`;
+      const tokenUrl = `https://login.microsoftonline.com/${this.tenantId}/oauth2/v2.0/token`;
       
-      const response = await axios.post(tokenUrl, {
-        grant_type: 'client_credentials',
-        client_id: process.env.REACT_APP_CLIENT_ID,
-        client_secret: process.env.REACT_APP_CLIENT_SECRET,
-        resource: `00000003-0000-0ff1-ce00-000000000000/${this.siteUrl.split('/')[2]}@${process.env.REACT_APP_TENANT_ID}`
+      const response = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: new URLSearchParams({
+          grant_type: 'client_credentials',
+          client_id: this.clientId,
+          client_secret: this.clientSecret,
+          scope: 'https://graph.microsoft.com/.default'
+        })
       });
 
-      return response.data.access_token;
+      const data = await response.json();
+      this.accessToken = data.access_token;
+      if (!this.accessToken) {
+        throw new Error('Failed to get access token');
+      }
+      return this.accessToken;
     } catch (error) {
       console.error('Error getting access token:', error);
       throw error;
     }
   }
 
-  // Upload image to SharePoint document library
-  private async uploadImage(imageData: string, fileName: string): Promise<string> {
-    try {
-      const token = await this.getAccessToken();
-      
-      // Convert base64 to blob
-      const base64Data = imageData.split(',')[1];
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
+  private async getSiteId(): Promise<string> {
+    const token = await this.getAccessToken();
+    const response = await fetch(`https://graph.microsoft.com/v1.0/sites?search=*`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
       }
-      
-      const byteArray = new Uint8Array(byteNumbers);
-      
-      const uploadUrl = `${this.siteUrl}/_api/web/lists/getbytitle('PatientImages')/RootFolder/Files/Add(url='${fileName}',overwrite=true)`;
-      
-      const response = await axios.post(uploadUrl, byteArray, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json;odata=verbose',
-          'Content-Type': 'application/octet-stream'
-        }
-      });
-
-      return response.data.d.ServerRelativeUrl;
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      throw error;
-    }
+    });
+    const data = await response.json();
+    return data.value[0]?.id || 'root';
   }
 
-  // Submit patient form data to SharePoint list
-  async submitPatientForm(formData: any, capturedPhotos: {[key: string]: string}, signature?: string): Promise<boolean> {
+  private async uploadToSharePoint(fileName: string, fileData: string): Promise<string> {
+    const token = await this.getAccessToken();
+    const siteId = await this.getSiteId();
+    const base64Data = fileData.split(',')[1];
+    
+    const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/Customerformuploader/${fileName}:/content`;
+    
+    const response = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/octet-stream'
+      },
+      body: Uint8Array.from(atob(base64Data), c => c.charCodeAt(0))
+    });
+
+    const result = await response.json();
+    return result.webUrl;
+  }
+
+  private async createListItem(listName: string, itemData: any): Promise<boolean> {
+    const token = await this.getAccessToken();
+    const siteId = await this.getSiteId();
+    
+    const listUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listName}/items`;
+    
+    const response = await fetch(listUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        fields: itemData
+      })
+    });
+
+    return response.ok;
+  }
+
+  async submitPatientForm(formData: any, capturedPhotos: {[key: string]: string}, signature?: string): Promise<{success: boolean, message: string, details?: any}> {
     try {
-      const token = await this.getAccessToken();
+      const patientName = `${formData.firstName}_${formData.lastName}`;
+      const timestamp = Date.now();
       
-      // Upload images and get their URLs
-      const imageUrls: {[key: string]: string} = {};
+      // Upload photos
+      const photoUrls: {[key: string]: string} = {};
+      let uploadedPhotos = 0;
       
-      for (const [angle, imageData] of Object.entries(capturedPhotos)) {
-        const fileName = `${formData.mobileNumber}_${angle}_${Date.now()}.png`;
-        const imageUrl = await this.uploadImage(imageData, fileName);
-        imageUrls[angle] = imageUrl;
+      for (const [angle, photoData] of Object.entries(capturedPhotos)) {
+        const fileName = `${patientName}_${angle}_${timestamp}.png`;
+        const photoUrl = await this.uploadToSharePoint(fileName, photoData);
+        photoUrls[angle] = photoUrl;
+        uploadedPhotos++;
       }
 
-      // Upload signature if exists
+      // Upload signature
       let signatureUrl = '';
       if (signature) {
-        const signatureFileName = `${formData.mobileNumber}_signature_${Date.now()}.png`;
-        signatureUrl = await this.uploadImage(signature, signatureFileName);
+        const signatureFileName = `${patientName}_Signature_${timestamp}.png`;
+        signatureUrl = await this.uploadToSharePoint(signatureFileName, signature);
       }
 
       // Create list item
-      const listUrl = `${this.siteUrl}/_api/web/lists/getbytitle('${this.listName}')/items`;
-      
       const listItem = {
         Title: `${formData.firstName} ${formData.lastName}`,
         FirstName: formData.firstName,
@@ -96,44 +119,42 @@ export class SharePointService {
         MobileNumber: formData.mobileNumber,
         ProcedureName: formData.procedureName,
         DateOfBirth: formData.dateOfBirth,
-        PhotoUrls: JSON.stringify(imageUrls),
+        PhotoUrls: JSON.stringify(photoUrls),
         SignatureUrl: signatureUrl,
         SubmissionDate: new Date().toISOString()
       };
 
-      const response = await axios.post(listUrl, listItem, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json;odata=verbose',
-          'Content-Type': 'application/json;odata=verbose',
-          'X-RequestDigest': await this.getFormDigest()
-        }
-      });
-
-      return response.status === 201;
+      const listSuccess = await this.createListItem('PatientPhotos', listItem);
+      
+      if (listSuccess) {
+        return {
+          success: true,
+          message: `Successfully submitted patient form for ${formData.firstName} ${formData.lastName}`,
+          details: {
+            patientName: `${formData.firstName} ${formData.lastName}`,
+            photosUploaded: uploadedPhotos,
+            signatureUploaded: !!signature,
+            submissionTime: new Date().toISOString(),
+            listItemCreated: true
+          }
+        };
+      } else {
+        throw new Error('Failed to create list item in SharePoint');
+      }
     } catch (error) {
       console.error('Error submitting to SharePoint:', error);
-      return false;
-    }
-  }
-
-  // Get form digest for POST requests
-  private async getFormDigest(): Promise<string> {
-    try {
-      const token = await this.getAccessToken();
-      const digestUrl = `${this.siteUrl}/_api/contextinfo`;
       
-      const response = await axios.post(digestUrl, {}, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json;odata=verbose'
+      return {
+        success: false,
+        message: `Failed to submit form: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        details: {
+          patientName: `${formData.firstName} ${formData.lastName}`,
+          photosAttempted: Object.keys(capturedPhotos).length,
+          signatureAttempted: !!signature,
+          submissionTime: new Date().toISOString(),
+          error: error instanceof Error ? error.message : 'Unknown error'
         }
-      });
-
-      return response.data.d.GetContextWebInformation.FormDigestValue;
-    } catch (error) {
-      console.error('Error getting form digest:', error);
-      throw error;
+      };
     }
   }
 }

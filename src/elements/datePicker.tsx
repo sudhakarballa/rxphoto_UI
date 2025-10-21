@@ -14,9 +14,10 @@ type params = {
 
 export const DatePickerWithValidation = (props: params) => {
     const { item, selectedItem, value, onChange, disable, isValidationOptional, ...others } = props;
-    const [startDate, setStartDate] = useState<Date>(new Date());
+    const [startDate, setStartDate] = useState<Date | null>(null);
 
-    const { register, formState: { errors } } = useFormContext();
+    const { register, formState: { errors }, watch } = useFormContext();
+    const watchedValue = watch(item.value);
 
     return (
         <>
@@ -25,7 +26,7 @@ export const DatePickerWithValidation = (props: params) => {
                     placeholderText="Select Date of Birth"
                     showIcon
                     dateFormat="MM/dd/yyyy"
-                    selected={selectedItem[item.value] ? new Date(selectedItem[item.value]) : null}
+                    selected={watchedValue ? new Date(watchedValue) : null}
                     className="form-control shadow-sm custom-datepicker"
                     showTimeSelect={item.showTimeSelect}
                     disabled={disable}
@@ -57,8 +58,7 @@ export const DATEPICKER = (props: params) => {
                     <Picker
                         placeholderText="MM/DD/YYYY"
                         showIcon
-                        value={value}
-                        selected={value}
+                        selected={value ? new Date(value) : null}
                         disabled={disable}
                         className="form-control"
                         onChange={(date:any) => onChange(date as any)}
