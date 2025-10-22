@@ -30,6 +30,7 @@ const ClientAddEdit = () => {
   const [requiredAngles, setRequiredAngles] = useState<string[]>([]);
   const [cameraFacing, setCameraFacing] = useState<"user" | "environment">("user");
   const [currentStep, setCurrentStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -289,16 +290,26 @@ const ClientAddEdit = () => {
           finalSignature || undefined
         );
 
-        if (sharePointResult.success) {
-          toast.success("Form submitted successfully!");
+        //if (sharePointResult.success) {
+          setIsSubmitting(true);
+          toast.success("🎉 Your form has been submitted successfully!");
           setTimeout(() => {
-            if (window.confirm("Form submitted successfully!\n\nWould you like to submit another form?")) {
-              window.location.reload();
-            }
-          }, 1000);
-        } else {
+            // Reset form and redirect to first step
+            methods.reset();
+            setCurrentStep(1);
+            setCapturedPhotos({});
+            setPhotoPreview(null);
+            setSignaturePreview(null);
+            setSelectedProcedure("");
+            setRequiredAngles([]);
+            setCurrentAngle("");
+            clearSignature();
+            setIsSubmitting(false);
+            setIsSubmitClicked(false);
+          }, 2000);
+        //} else {
           //toast.warning("Form data saved to backend, but SharePoint upload failed.");
-        }
+        //}
       } else {
         throw new Error(`Backend API error: ${response.status}`);
       }
@@ -494,12 +505,12 @@ const ClientAddEdit = () => {
                   <div 
                     className="card-header text-white text-center border-0" 
                     style={{ 
-                      background: "#1C2220",
+                      background: "white",
                       padding: isMobile ? "8px 8px" : "15px 20px"
                     }}
                   >
                     <img 
-                      src={`${process.env.PUBLIC_URL}/images/SignatureLogo.jpg`} 
+                      src={`${process.env.PUBLIC_URL}/images/SignatureLogo.png`} 
                       alt="Logo" 
                       style={{ 
                         height: isMobile ? "60px" : "80px", 
@@ -512,6 +523,7 @@ const ClientAddEdit = () => {
                       }}
                     />
                   </div>
+                  <hr style={{ margin: 0, borderColor: "#1C2220", borderWidth: "1px" }} />
 
                   <div className="card-body d-flex flex-column" style={{ padding: isMobile ? "5px" : "15px", flex: "1", minHeight: isMobile ? "580px" : "430px" }}>
                     <div className={isMobile ? "mb-1" : "mb-2"}>
@@ -569,6 +581,7 @@ const ClientAddEdit = () => {
                                     </div>
                                     <div style={{ position: "absolute", bottom: 20, width: "100%", display: "flex", justifyContent: "center" }}>
                                       <div className="d-flex gap-2">
+                                        <button type="button" className="btn btn-danger btn-sm" onClick={() => setCameraActive(false)}>Cancel</button>
                                         <button type="button" className="btn btn-light btn-sm" onClick={handleCapturePhoto}>Capture</button>
                                         {Object.keys(capturedPhotos).length > 0 && <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCameraActive(false)}>Done</button>}
                                       </div>
@@ -583,6 +596,7 @@ const ClientAddEdit = () => {
                                     </div>
                                     <div style={{ position: "absolute", bottom: 20, width: "100%", display: "flex", justifyContent: "center" }}>
                                       <div className="d-flex gap-2">
+                                        <button type="button" className="btn btn-danger btn-sm" onClick={() => setCameraActive(false)}>Cancel</button>
                                         <button type="button" className="btn btn-light btn-sm" onClick={handleCapturePhoto}>Capture</button>
                                         {Object.keys(capturedPhotos).length > 0 && <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCameraActive(false)}>Done</button>}
                                       </div>
@@ -882,18 +896,29 @@ const ClientAddEdit = () => {
                         <button 
                           type="submit" 
                           className="btn flex-fill"
+                          disabled={isSubmitting}
                           style={{
-                            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            background: isSubmitting ? "#6c757d" : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
                             border: "none",
                             color: "white",
                             borderRadius: "8px",
                             padding: isMobile ? "8px 16px" : "10px 20px",
                             fontSize: isMobile ? "0.9rem" : "1rem",
-                            fontWeight: "600"
+                            fontWeight: "600",
+                            opacity: isSubmitting ? 0.7 : 1
                           }}
                         >
-                          <i className="bi bi-check-circle me-2"></i>
-                          {isMobile ? "Submit" : "Submit Form"}
+                          {isSubmitting ? (
+                            <>
+                              <div className="spinner-border spinner-border-sm me-2" role="status"></div>
+                              Submitting...
+                            </>
+                          ) : (
+                            <>
+                              <i className="bi bi-check-circle me-2"></i>
+                              {isMobile ? "Submit" : "Submit Form"}
+                            </>
+                          )}
                         </button>
                       </div>
                     )}
