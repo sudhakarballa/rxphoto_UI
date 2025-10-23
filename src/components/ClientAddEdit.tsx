@@ -264,6 +264,11 @@ const ClientAddEdit = () => {
     }
 
     try {
+      const photos = Object.entries(capturedPhotos).map(([angle, dataUrl]) => ({
+        angle,
+        imageData: dataUrl
+      }));
+      
       const backendPayload = {
         id: 0,
         firstName: item.firstName,
@@ -271,7 +276,9 @@ const ClientAddEdit = () => {
         email: item.email,
         patientId: item.mobileNumber,
         procedureName: item.procedureName,
-        dateOfBirth: item.dateOfBirth
+        dateOfBirth: item.dateOfBirth,
+        photos: photos,
+        signature: finalSignature
       };
 
       const backendUrl = process.env.REACT_APP_BACKEND_BASE_URL;
@@ -463,6 +470,18 @@ const ClientAddEdit = () => {
       default:
         return faceFrontOverlay;
     }
+  };
+
+  const dataURLtoBlob = (dataURL: string) => {
+    const arr = dataURL.split(',');
+    const mime = arr[0].match(/:(.*?);/)![1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
   };
 
   const onChange = (value: any, item: any) => {
