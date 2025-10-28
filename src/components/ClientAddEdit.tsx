@@ -31,6 +31,7 @@ const ClientAddEdit = () => {
   const [cameraFacing, setCameraFacing] = useState<"user" | "environment">("user");
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [photoError, setPhotoError] = useState<string>("");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -109,7 +110,7 @@ const ClientAddEdit = () => {
   };
 
   const methods = useForm(formOptions);
-  const { handleSubmit, setValue, formState: { errors } } = methods;
+  const { handleSubmit, setValue, trigger, formState: { errors } } = methods;
 
   useEffect(() => {
     if (cameraActive) {
@@ -210,57 +211,60 @@ const ClientAddEdit = () => {
     return canvas.toDataURL("image/png");
   };
 
-  const handleNextStep = () => {
+  const handleNextStep = async (e?: React.MouseEvent) => {
+    e?.preventDefault();
     if (currentStep === 1) {
-      // Validate step 1 - form fields
-      const formData = methods.getValues() as Record<string, any>;
-      const requiredFields = ['firstName', 'lastName', 'email', 'mobileNumber', 'procedureName', 'dateOfBirth'];
-      const missingFields = requiredFields.filter(field => !formData[field]);
-      
-      if (missingFields.length > 0) {
-        toast.error('Please fill in all required fields before proceeding.');
+      // Trigger validation for all fields
+      const isValid = await trigger();
+      if (!isValid) {
         return;
       }
       setCurrentStep(2);
     } else if (currentStep === 2) {
       // Validate step 2 - photos
       if (requiredAngles.length > 0 && Object.keys(capturedPhotos).length < requiredAngles.length) {
-        toast.error(`Please capture all required photos: ${requiredAngles.join(", ")}`);
+        setPhotoError(`Please capture all required photos: ${requiredAngles.join(", ")}`);
         return;
       }
       if (!photoPreview && Object.keys(capturedPhotos).length === 0) {
-        toast.error('Please take at least one photo before proceeding.');
+        setPhotoError('Please take at least one photo before proceeding.');
         return;
       }
+      setPhotoError("");
       setCurrentStep(3);
     }
   };
 
-  const handlePrevStep = () => {
+  const handlePrevStep = (e?: React.MouseEvent) => {
+    e?.preventDefault();
     setCurrentStep(1);
   };
 
   const onSubmit = async (item: any) => {
+    // Prevent submission if not on step 3
+
+    if (currentStep !== 3) {
+      return;
+    }
+    
     setIsSubmitClicked(true);
 
     if (requiredAngles.length > 0 && Object.keys(capturedPhotos).length < requiredAngles.length) {
-      toast.error(`Please capture all required photos: ${requiredAngles.join(", ")}`);
+      setPhotoError(`Please capture all required photos: ${requiredAngles.join(", ")}`);
       return;
     }
 
     if (!photoPreview && Object.keys(capturedPhotos).length === 0) {
-      toast.error("Photo is required.");
+      setPhotoError("Photo is required.");
       return;
     }
+
+    setIsSubmitting(true);
 
     let finalSignature = signaturePreview;
     if (!finalSignature) {
       const dataUrl = getSignatureDataUrl();
-      if (!dataUrl) {
-        toast.error("Signature is required.");
-        return;
-      }
-      finalSignature = dataUrl;
+      finalSignature = dataUrl; // Signature is optional
     }
 
     try {
@@ -280,7 +284,7 @@ const ClientAddEdit = () => {
         photos: photos,
         signature: finalSignature
       };
-
+      
       const backendUrl = process.env.REACT_APP_BACKEND_BASE_URL;
       const response = await fetch(`${backendUrl}/PlmsPhoto/plmsphoto`, {
         method: 'POST',
@@ -298,7 +302,6 @@ const ClientAddEdit = () => {
         );
 
         //if (sharePointResult.success) {
-          setIsSubmitting(true);
           toast.success("🎉 Your form has been submitted successfully!");
           setTimeout(() => {
             // Reset form and redirect to first step
@@ -323,6 +326,7 @@ const ClientAddEdit = () => {
     } catch (error) {
       console.error('Form submission error:', error);
       toast.error("Error submitting form. Please check your connection.");
+      setIsSubmitting(false);
     }
   };
 
@@ -399,11 +403,12 @@ const ClientAddEdit = () => {
       };
       
       const message = errorMessages[currentAngle as keyof typeof errorMessages] || `Please align properly for ${currentAngle} angle`;
-      toast.error(message);
+      setPhotoError(message);
       return;
     }
     
     setCapturedPhotos(prev => ({ ...prev, [currentAngle]: dataUrl }));
+    setPhotoError("");
     toast.success(`${currentAngle} photo captured!`);
     
     const nextAngleIndex = requiredAngles.indexOf(currentAngle) + 1;
@@ -657,7 +662,7 @@ const ClientAddEdit = () => {
                                       fontWeight: "600",
                                       boxShadow: "0 4px 16px rgba(102, 126, 234, 0.3)",
                                       transition: "all 0.2s ease"
-                                    }} onClick={() => { if (!selectedProcedure) { toast.error("Select procedure first"); return; } const angles = getProcedureAngles(selectedProcedure); setRequiredAngles(angles); setCurrentAngle(angles[0] || ""); setCameraActive(true); }} onMouseEnter={(e) => {
+                                    }} onClick={() => { if (!selectedProcedure) { setPhotoError("Select procedure first"); return; } const angles = getProcedureAngles(selectedProcedure); setRequiredAngles(angles); setCurrentAngle(angles[0] || ""); setPhotoError(""); setCameraActive(true); }} onMouseEnter={(e) => {
                                       const target = e.target as HTMLButtonElement;
                                       target.style.transform = "translateY(-2px)";
                                       target.style.boxShadow = "0 6px 20px rgba(102, 126, 234, 0.4)";
@@ -740,9 +745,12 @@ const ClientAddEdit = () => {
                               )}
                             </div>
                         </div>
-                        {(Object.keys(capturedPhotos).length === 0 && !photoPreview) && isSubmitClicked && (
+                        {photoError && (
                           <div className="text-center mt-2">
-                            <small className="text-danger">Photos are required</small>
+                            <small className="text-danger">
+                              <i className="bi bi-exclamation-circle me-1"></i>
+                              {photoError}
+                            </small>
                           </div>
                         )}
                       </div>
@@ -833,11 +841,7 @@ const ClientAddEdit = () => {
                             )}
                           </div>
                         </div>
-                        {!signaturePreview && isSubmitClicked && (
-                          <div className="text-center mt-2">
-                            <small className="text-danger">Signature is required</small>
-                          </div>
-                        )}
+
                       </div>
                     )}
                   </div>
