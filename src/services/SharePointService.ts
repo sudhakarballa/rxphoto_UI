@@ -1,7 +1,7 @@
 export class SharePointService {
   private clientId = 'cccd3fbd-75b2-494c-8bb4-4250628ddf33';
   private tenantId = '9dde22fd-a45c-44b6-aef1-d110a7162789';
-  private clientSecret = '0ec12d8d-2396-4379-800f-b8cf71d6773d';
+  private clientSecret = 'SSh8Q~C.Kev8hO3b8HQs5QwUQqb2D8xBHw~iubo5';
 
   private accessToken: string | null = null;
 

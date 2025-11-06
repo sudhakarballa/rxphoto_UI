@@ -1,20 +1,18 @@
-import React, { useRef, useState, useEffect } from "react";
-import "bootstrap/dist/css/bootstrap.min.css";
 import { yupResolver } from "@hookform/resolvers/yup";
-import { ElementType, IControl } from "../models/iControl";
-import { useForm, FormProvider } from "react-hook-form";
-import * as Yup from "yup";
-import Util from "../others/util";
-import GenerateElements from "../common/generateElements";
+import "bootstrap/dist/css/bootstrap.min.css";
+import React, { useEffect, useRef, useState } from "react";
+import { FormProvider, useForm } from "react-hook-form";
 import { toast } from "react-toastify";
-import faceFrontOverlay from "./images/face-front.svg";
+import * as Yup from "yup";
+import GenerateElements from "../common/generateElements";
+import { ElementType, IControl } from "../models/iControl";
+import { SharePointService } from "../services/SharePointService";
+// import faceFrontOverlay from "./images/face-front.svg";
 import faceLeftOverlay from "./images/face-left-profile.svg";
 import faceRightOverlay from "./images/face-right-profile.svg";
 import bodyFrontOverlay from "./images/body-front.svg";
 import bodyBackOverlay from "./images/body-back.svg";
 import throatOverlay from "./images/throat-profile.svg";
-import masculineOverlay from "./images/face-masculine.svg";
-import { SharePointService } from "../services/SharePointService";
 
 const ClientAddEdit = () => {
   const sharePointSvc = new SharePointService();
@@ -301,7 +299,7 @@ const ClientAddEdit = () => {
           finalSignature || undefined
         );
 
-        //if (sharePointResult.success) {
+        if (sharePointResult.success) {
           toast.success("🎉 Your form has been submitted successfully!");
           setTimeout(() => {
             // Reset form and redirect to first step
@@ -319,7 +317,7 @@ const ClientAddEdit = () => {
           }, 2000);
         //} else {
           //toast.warning("Form data saved to backend, but SharePoint upload failed.");
-        //}
+        }
       } else {
         throw new Error(`Backend API error: ${response.status}`);
       }
@@ -364,21 +362,184 @@ const ClientAddEdit = () => {
     }
   };
 
-  const validatePhotoAlignment = (imageData: string, angle: string): boolean => {
-    const validationRules = {
-      'Left Profile': () => Math.random() > 0.6,
-      'Right Profile': () => Math.random() > 0.6,
-      'Front': () => Math.random() > 0.5,
-      'Back': () => Math.random() > 0.6,
-      'Left Side': () => Math.random() > 0.6,
-      'Right Side': () => Math.random() > 0.6
-    };
-
-    const validator = validationRules[angle as keyof typeof validationRules];
-    return validator ? validator() : Math.random() > 0.5;
+  const validatePoseStructure = (data: Uint8ClampedArray, width: number, height: number, angle: string): boolean => {
+    // Detect skin tone regions (assuming person is in center)
+    const skinRegions = detectSkinRegions(data, width, height);
+    if (skinRegions.length < 100) return false; // Not enough skin detected
+    
+    // Analyze pose based on angle requirements
+    if (angle.includes('Anterior') || angle.includes('Front')) {
+      return validateFrontalPose(data, width, height, skinRegions);
+    } else if (angle.includes('Posterior') || angle.includes('Back')) {
+      return validateBackPose(data, width, height, skinRegions);
+    } else if (angle.includes('Left') || angle.includes('left')) {
+      return validateLeftPose(data, width, height, skinRegions);
+    } else if (angle.includes('Right') || angle.includes('right')) {
+      return validateRightPose(data, width, height, skinRegions);
+    } else if (angle.includes('Lateral')) {
+      return validateLateralPose(data, width, height, skinRegions, angle);
+    }
+    
+    return true; // Default validation for other angles
   };
 
-  const handleCapturePhoto = () => {
+  const detectSkinRegions = (data: Uint8ClampedArray, width: number, height: number): Array<{x: number, y: number}> => {
+    const skinPixels: Array<{x: number, y: number}> = [];
+    
+    for (let y = 0; y < height; y += 4) {
+      for (let x = 0; x < width; x += 4) {
+        const i = (y * width + x) * 4;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        
+        // Skin tone detection (simplified)
+        if (isSkinTone(r, g, b)) {
+          skinPixels.push({x, y});
+        }
+      }
+    }
+    
+    return skinPixels;
+  };
+
+  const isSkinTone = (r: number, g: number, b: number): boolean => {
+    // Simplified skin tone detection
+    return (r > 95 && g > 40 && b > 20 && 
+            Math.max(r, g, b) - Math.min(r, g, b) > 15 &&
+            Math.abs(r - g) > 15 && r > g && r > b);
+  };
+
+  const validateFrontalPose = (data: Uint8ClampedArray, width: number, height: number, skinRegions: Array<{x: number, y: number}>): boolean => {
+    // Check for symmetrical distribution of skin regions
+    const leftSide = skinRegions.filter(p => p.x < width / 2).length;
+    const rightSide = skinRegions.filter(p => p.x > width / 2).length;
+    const symmetryRatio = Math.min(leftSide, rightSide) / Math.max(leftSide, rightSide);
+    
+    return symmetryRatio > 0.6; // At least 60% symmetry for frontal pose
+  };
+
+  const validateBackPose = (data: Uint8ClampedArray, width: number, height: number, skinRegions: Array<{x: number, y: number}>): boolean => {
+    // Similar to frontal but check for back-specific features
+    const centerRegions = skinRegions.filter(p => p.x > width * 0.3 && p.x < width * 0.7).length;
+    const totalRegions = skinRegions.length;
+    
+    return centerRegions / totalRegions > 0.4; // Back should have concentrated center mass
+  };
+
+  const validateLeftPose = (data: Uint8ClampedArray, width: number, height: number, skinRegions: Array<{x: number, y: number}>): boolean => {
+    // Left profile should have more skin on the right side of image
+    const leftSide = skinRegions.filter(p => p.x < width * 0.4).length;
+    const rightSide = skinRegions.filter(p => p.x > width * 0.6).length;
+    
+    return rightSide > leftSide * 1.5; // Right side should dominate for left profile
+  };
+
+  const validateRightPose = (data: Uint8ClampedArray, width: number, height: number, skinRegions: Array<{x: number, y: number}>): boolean => {
+    // Right profile should have more skin on the left side of image
+    const leftSide = skinRegions.filter(p => p.x < width * 0.4).length;
+    const rightSide = skinRegions.filter(p => p.x > width * 0.6).length;
+    
+    return leftSide > rightSide * 1.5; // Left side should dominate for right profile
+  };
+
+  const validateLateralPose = (data: Uint8ClampedArray, width: number, height: number, skinRegions: Array<{x: number, y: number}>, angle: string): boolean => {
+    if (angle.includes('Left')) {
+      return validateLeftPose(data, width, height, skinRegions);
+    } else {
+      return validateRightPose(data, width, height, skinRegions);
+    }
+  };
+
+  const validatePhotoAlignment = (imageData: string, angle: string): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(false);
+          return;
+        }
+        
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        
+        // Get image data for analysis
+        const imageDataArray = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageDataArray.data;
+        
+        // Basic quality checks
+        let totalBrightness = 0;
+        let pixelCount = 0;
+        
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const brightness = (r + g + b) / 3;
+          totalBrightness += brightness;
+          pixelCount++;
+        }
+        
+        const avgBrightness = totalBrightness / pixelCount;
+        
+        // Reject if image is too dark
+        if (avgBrightness < 30) {
+          resolve(false);
+          return;
+        }
+        
+        // Reject if image is too bright
+        if (avgBrightness > 240) {
+          resolve(false);
+          return;
+        }
+        
+        // Analyze image for pose/angle validation
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const sampleSize = 20;
+        
+        // Sample pixels from different regions to detect pose
+        let leftSideBrightness = 0;
+        let rightSideBrightness = 0;
+        let topBrightness = 0;
+        let bottomBrightness = 0;
+        
+        // Sample left side
+        for (let i = 0; i < sampleSize; i++) {
+          const x = Math.floor(canvas.width * 0.2);
+          const y = Math.floor((canvas.height / sampleSize) * i);
+          const pixelIndex = (y * canvas.width + x) * 4;
+          leftSideBrightness += (data[pixelIndex] + data[pixelIndex + 1] + data[pixelIndex + 2]) / 3;
+        }
+        
+        // Sample right side
+        for (let i = 0; i < sampleSize; i++) {
+          const x = Math.floor(canvas.width * 0.8);
+          const y = Math.floor((canvas.height / sampleSize) * i);
+          const pixelIndex = (y * canvas.width + x) * 4;
+          rightSideBrightness += (data[pixelIndex] + data[pixelIndex + 1] + data[pixelIndex + 2]) / 3;
+        }
+        
+        leftSideBrightness /= sampleSize;
+        rightSideBrightness /= sampleSize;
+        
+        const brightnessDiff = Math.abs(leftSideBrightness - rightSideBrightness);
+        
+        // Advanced pose validation based on angle
+        const isValidPose = validatePoseStructure(data, canvas.width, canvas.height, angle);
+        resolve(isValidPose);
+      };
+      
+      img.onerror = () => resolve(false);
+      img.src = imageData;
+    });
+  };
+
+  const handleCapturePhoto = async () => {
     if (!videoRef.current || !canvasRef.current || !currentAngle) return;
     const width = videoRef.current.videoWidth;
     const height = videoRef.current.videoHeight;
@@ -392,17 +553,23 @@ const ClientAddEdit = () => {
     ctx.drawImage(videoRef.current, 0, 0, width, height);
     const dataUrl = canvasRef.current.toDataURL("image/png");
     
-    if (!validatePhotoAlignment(dataUrl, currentAngle)) {
-      const errorMessages = {
-        'Left Profile': 'Please turn your head to the left and show your left profile',
-        'Right Profile': 'Please turn your head to the right and show your right profile', 
-        'Front': 'Please face the camera directly',
-        'Back': 'Please turn around and show your back',
-        'Left Side': 'Please turn your body to show the left side',
-        'Right Side': 'Please turn your body to show the right side'
+    const isValid = await validatePhotoAlignment(dataUrl, currentAngle);
+    if (!isValid) {
+      const getErrorMessage = (angle: string) => {
+        if (angle.includes('Left') || angle.includes('left')) {
+          return `Please position yourself to show the LEFT side as required for ${angle}. The image doesn't match the expected left angle.`;
+        } else if (angle.includes('Right') || angle.includes('right')) {
+          return `Please position yourself to show the RIGHT side as required for ${angle}. The image doesn't match the expected right angle.`;
+        } else if (angle.includes('Anterior') || angle.includes('Front')) {
+          return `Please face the camera directly for ${angle}. The image doesn't show the front view properly.`;
+        } else if (angle.includes('Posterior') || angle.includes('Back')) {
+          return `Please turn around to show your back for ${angle}. The image doesn't show the back view properly.`;
+        } else {
+          return `The captured image doesn't match the required ${angle} position. Please adjust your pose and try again.`;
+        }
       };
       
-      const message = errorMessages[currentAngle as keyof typeof errorMessages] || `Please align properly for ${currentAngle} angle`;
+      const message = getErrorMessage(currentAngle);
       setPhotoError(message);
       return;
     }
@@ -421,11 +588,30 @@ const ClientAddEdit = () => {
   };
 
   const getDropdownvalues = (item: any) => {
+    // Only show procedures that have overlay images available
     const procedure = [
-      { procedureId: "Brow Lift", procedureName: "Brow Lift" },
-      { procedureId: "Body Feminisation", procedureName: "Body Feminisation" },
-      { procedureId: "Voice and Throat", procedureName: "Voice and Throat" },
-      { procedureId: "Facial Masculinisation", procedureName: "Facial Masculinisation" }
+      { procedureId: "Abdominoplasty-Mini Abdominoplasty", procedureName: "Abdominoplasty-Mini Abdominoplasty" },
+      { procedureId: "Arms Lift", procedureName: "Arms Lift" },
+      { procedureId: "Buccal Fat pad Removal", procedureName: "Buccal Fat pad Removal" },
+      { procedureId: "Buffalo Hump ( Female )", procedureName: "Buffalo Hump ( Female )" },
+      { procedureId: "Buffalo Hump ( Male )", procedureName: "Buffalo Hump ( Male )" },
+      { procedureId: "Carpal Tunnel", procedureName: "Carpal Tunnel" },
+      { procedureId: "Dimpleplasty", procedureName: "Dimpleplasty" },
+      { procedureId: "Earlobe Reduction-Earlobe repair", procedureName: "Earlobe Reduction-Earlobe repair" },
+      { procedureId: "Face Lift", procedureName: "Face Lift" },
+      { procedureId: "Forehead Reduction", procedureName: "Forehead Reduction" },
+      { procedureId: "Gynecomastia", procedureName: "Gynecomastia" },
+      { procedureId: "Inverted Nipple-Nipple Reduction (Female)", procedureName: "Inverted Nipple-Nipple Reduction (Female)" },
+      { procedureId: "Inverted Nipple-Nipple Reduction (Male)", procedureName: "Inverted Nipple-Nipple Reduction (Male)" },
+      { procedureId: "Labiaplasty", procedureName: "Labiaplasty" },
+      { procedureId: "Lip Lift", procedureName: "Lip Lift" },
+      { procedureId: "Lower Blepharoplasty", procedureName: "Lower Blepharoplasty" },
+      { procedureId: "Neck Lift", procedureName: "Neck Lift" },
+      { procedureId: "Otoplasty", procedureName: "Otoplasty" },
+      { procedureId: "Penile girth Enhancement-Ligament Release", procedureName: "Penile girth Enhancement-Ligament Release" },
+      { procedureId: "Skin tag removal-Mole removal-Cyst Removal", procedureName: "Skin tag removal-Mole removal-Cyst Removal" },
+      { procedureId: "Trigger finger", procedureName: "Trigger finger" },
+      { procedureId: "Upper Blepharoplasty-Ptosis Repair", procedureName: "Upper Blepharoplasty-Ptosis Repair" }
     ];
 
     if (item.key === "Procedure Name") {
@@ -439,42 +625,193 @@ const ClientAddEdit = () => {
 
   const getProcedureAngles = (procedure: string) => {
     switch (procedure) {
+      case "Abdominoplasty-Mini Abdominoplasty":
+        return ["Anterior Oblique Left", "Anterior Oblique Right", "Lateral Left", "Lateral Right", "Posterior Oblique Left", "Posterior Oblique Right"];
+      case "Arms Lift":
+        return ["Armpits Anterior", "Arms Anterior Bent Down Left", "Arms Anterior Bent Down Right", "Arms Anterior Level Left", "Arms Anterior Level Right"];
       case "Brow Lift":
         return ["Front", "Left Profile", "Right Profile"];
-      case "Body Feminisation":
-        return ["Front", "Back", "Left Side", "Right Side"];
-      case "Voice and Throat":
-        return ["Front", "Left Profile", "Right Profile"];
-      case "Facial Masculinisation":
-        return ["Front", "Left Profile", "Right Profile", "3/4 Left", "3/4 Right"];
+      case "Buccal Fat pad Removal":
+        return ["Closed Mouth Anterior", "Open Mouth Anterior Oblique Left", "Open Mouth Anterior Oblique Right"];
+      case "Buffalo Hump ( Female )":
+        return ["Upper Body Lateral Left", "Upper Body Lateral Right"];
+      case "Buffalo Hump ( Male )":
+        return ["Trunk Posterior", "Trunk Lateral Left", "Trunk Lateral Right"];
+      case "Carpal Tunnel":
+        return ["Fist Anterior Left", "Fist Anterior Right", "Hand Anterior Left", "Hand Anterior Right"];
+      case "Dimpleplasty":
+        return ["Closed Mouth Anterior Oblique Left", "Closed Mouth Anterior Oblique Right", "Closed Mouth Anterior", "Smile"];
+      case "Earlobe Reduction-Earlobe repair":
+        return ["Full Crown Lateral Left", "Full Crown Lateral Right"];
+      case "Face Lift":
+        return ["Face Chin Down", "Face Frontal", "Face Lateral Right"];
+      case "Forehead Reduction":
+        return ["1-2 Crown Anterior", "Full Crown Lateral Left", "Full Crown Lateral Right"];
+      case "Gynecomastia":
+        return ["Trunk Anterior Oblique Left", "Trunk Anterior Oblique Right", "Trunk Anterior", "Trunk Lateral Left", "Trunk Lateral Right"];
+      case "Inverted Nipple-Nipple Reduction (Female)":
+        return ["Left Side", "Right Side", "Upper Body Anterior"];
+      case "Inverted Nipple-Nipple Reduction (Male)":
+        return ["Left Side", "Right Side", "Trunk Anterior"];
+      case "Labiaplasty":
+        return ["Female"];
+      case "Lip Lift":
+        return ["Lips Anterior", "Lips Lateral Left", "Lips Lateral Right"];
+      case "Lower Blepharoplasty":
+        return ["Face Frontal Distance", "Face Lateral Left Distance", "Face Lateral Right Distance", "Face Near"];
+      case "Neck Lift":
+        return ["Neck Portrait Anterior", "Neck Portrait Lateral Left", "Neck Portrait Lateral Right"];
+      case "Otoplasty":
+        return ["Face Frontal Distance", "Full Crown Lateral Left", "Full Crown Lateral Right", "Full Crown Posterior"];
+      case "Penile girth Enhancement-Ligament Release":
+        return ["Male"];
+      case "Skin tag removal-Mole removal-Cyst Removal":
+        return ["3x3 Grid", "4x4 Grid"];
+      case "Trigger finger":
+        return ["Fist Anterior Left", "Fist Anterior Right", "Hand Anterior Left", "Hand Anterior Right"];
+      case "Upper Blepharoplasty-Ptosis Repair":
+        return ["Face Frontal Distance", "Face Lateral Left Distance", "Face Lateral Right Distance", "Face Near"];
       default:
         return ["Front"];
     }
   };
 
   const getOverlayImage = () => {
-    const key = `${selectedProcedure}-${currentAngle}`;
-    switch (key) {
-      case "Brow Lift-Front":
-      case "Facial Masculinisation-Front":
-        return faceFrontOverlay;
-      case "Brow Lift-Left Profile":
-      case "Facial Masculinisation-Left Profile":
-      case "Voice and Throat-Left Profile":
-        return faceLeftOverlay;
-      case "Brow Lift-Right Profile":
-      case "Facial Masculinisation-Right Profile":
-      case "Voice and Throat-Right Profile":
-        return faceRightOverlay;
-      case "Body Feminisation-Front":
-        return bodyFrontOverlay;
-      case "Body Feminisation-Back":
-        return bodyBackOverlay;
-      case "Voice and Throat-Front":
-        return throatOverlay;
-      default:
-        return faceFrontOverlay;
+    if (!selectedProcedure || !currentAngle) return null;
+    
+    const getImageFileName = (procedure: string, angle: string): string => {
+      const angleMap: { [key: string]: { [key: string]: string } } = {
+        "Abdominoplasty-Mini Abdominoplasty": {
+          "Anterior Oblique Left": "Abdomen-Anterior - Oblique Left.svg",
+          "Anterior Oblique Right": "Abdomen-Anterior - Oblique Right.svg",
+          "Lateral Left": "Abdomen-Lateral Left.svg",
+          "Lateral Right": "Abdomen-Lateral Right.svg",
+          "Posterior Oblique Left": "Abdomen-Posterior - Oblique Left.svg",
+          "Posterior Oblique Right": "Abdomen-Posterior - Oblique Right.svg"
+        },
+        "Arms Lift": {
+          "Armpits Anterior": "Armpits-Anterior.svg",
+          "Arms Anterior Bent Down Left": "Arms-Anterior - Bent Down Left.svg",
+          "Arms Anterior Bent Down Right": "Arms-Anterior - Bent Down Right.svg",
+          "Arms Anterior Level Left": "Arms-Anterior - Level Left.svg",
+          "Arms Anterior Level Right": "Arms-Anterior - Level Right.svg"
+        },
+        "Buccal Fat pad Removal": {
+          "Closed Mouth Anterior": "Closed Mouth-Anterior.svg",
+          "Open Mouth Anterior Oblique Left": "Open Mouth-Anterior - Oblique Left.svg",
+          "Open Mouth Anterior Oblique Right": "Open Mouth-Anterior - Oblique Right.svg"
+        },
+        "Buffalo Hump ( Female )": {
+          "Upper Body Lateral Left": "Upper Body-Lateral - Left.svg",
+          "Upper Body Lateral Right": "Upper Body-Lateral - Right.svg"
+        },
+        "Buffalo Hump ( Male )": {
+          "Trunk Posterior": "Tram-Posterior.svg",
+          "Trunk Lateral Left": "Trunk-Lateral-Left.svg",
+          "Trunk Lateral Right": "Trunk-Lateral-Right.svg"
+        },
+        "Carpal Tunnel": {
+          "Fist Anterior Left": "Fist-Anterior - Left.svg",
+          "Fist Anterior Right": "Fist-Anterior - Right.svg",
+          "Hand Anterior Left": "Hand-Anterior - Left.svg",
+          "Hand Anterior Right": "Hand-Anterior - Right.svg"
+        },
+        "Dimpleplasty": {
+          "Closed Mouth Anterior Oblique Left": "Closed Mouth-Anterior - Oblique Left.svg",
+          "Closed Mouth Anterior Oblique Right": "Closed Mouth-Anterior - Oblique Right.svg",
+          "Closed Mouth Anterior": "Closed Mouth-Anterior.svg",
+          "Smile": "Smile.svg"
+        },
+        "Face Lift": {
+          "Face Chin Down": "Face-Chin Down.svg",
+          "Face Frontal": "Face-Frontal.svg",
+          "Face Lateral Right": "Face-Lateral Right.svg"
+        },
+        "Gynecomastia": {
+          "Trunk Anterior Oblique Left": "Trunk-Anterior - Oblique Left.svg",
+          "Trunk Anterior Oblique Right": "Trunk-Anterior - Oblique Right.svg",
+          "Trunk Anterior": "Trunk-Anterior.svg",
+          "Trunk Lateral Left": "Trunk-Lateral Left.svg",
+          "Trunk Lateral Right": "Trunk-Lateral Right.svg"
+        },
+        "Earlobe Reduction-Earlobe repair": {
+          "Full Crown Lateral Left": "Full Crown-Lateral Left.svg",
+          "Full Crown Lateral Right": "Full Crown-Lateral Right.svg"
+        },
+        "Forehead Reduction": {
+          "1-2 Crown Anterior": "1-2 Crown-Anterior.svg",
+          "Full Crown Lateral Left": "Full Crown-Lateral Left.svg",
+          "Full Crown Lateral Right": "Full Crown-Lateral Right.svg"
+        },
+        "Inverted Nipple-Nipple Reduction (Female)": {
+          "Left Side": "Left-Side.svg",
+          "Right Side": "Right-Side.svg",
+          "Upper Body Anterior": "Upper Body-Anterior.svg"
+        },
+        "Inverted Nipple-Nipple Reduction (Male)": {
+          "Left Side": "Left-Side.svg",
+          "Right Side": "Right-Side.svg",
+          "Trunk Anterior": "Trunk-Anterior.svg"
+        },
+        "Labiaplasty": {
+          "Female": "Female.svg"
+        },
+        "Lip Lift": {
+          "Lips Anterior": "Lips-Anterior.svg",
+          "Lips Lateral Left": "Lips-Lateral - Left.svg",
+          "Lips Lateral Right": "Lips-Lateral - Right.svg"
+        },
+        "Lower Blepharoplasty": {
+          "Face Frontal Distance": "Face-Frontal - Distance.svg",
+          "Face Lateral Left Distance": "Face-Lateral Left - Distance.svg",
+          "Face Lateral Right Distance": "Face-Lateral Right - Distance.svg",
+          "Face Near": "Face-Near.svg"
+        },
+        "Neck Lift": {
+          "Neck Portrait Anterior": "Neck (Portrait)-Anterior.svg",
+          "Neck Portrait Lateral Left": "Neck (Portrait)-Lateral - Left.svg",
+          "Neck Portrait Lateral Right": "Neck (Portrait)-Lateral - Right.svg"
+        },
+        "Otoplasty": {
+          "Face Frontal Distance": "Face-Frontal - Distance.svg",
+          "Full Crown Lateral Left": "Full Crown-Lateral Left.svg",
+          "Full Crown Lateral Right": "Full Crown-Lateral Right.svg",
+          "Full Crown Posterior": "Full Crown-Posterior.svg"
+        },
+        "Penile girth Enhancement-Ligament Release": {
+          "Male": "Male.svg"
+        },
+        "Skin tag removal-Mole removal-Cyst Removal": {
+          "3x3 Grid": "3x3 Grid.svg",
+          "4x4 Grid": "4x4 Grid.svg"
+        },
+        "Trigger finger": {
+          "Fist Anterior Left": "Fist-Anterior - Left.svg",
+          "Fist Anterior Right": "Fist-Anterior - Right.svg",
+          "Hand Anterior Left": "Hand-Anterior - Left.svg",
+          "Hand Anterior Right": "Hand-Anterior - Right.svg"
+        },
+        "Upper Blepharoplasty-Ptosis Repair": {
+          "Face Frontal Distance": "Face-Frontal - Distance.svg",
+          "Face Lateral Left Distance": "Face-Lateral Left - Distance.svg",
+          "Face Lateral Right Distance": "Face-Lateral Right - Distance.svg",
+          "Face Near": "Face-Near.svg"
+        }
+      };
+      
+      return angleMap[procedure]?.[angle] || "";
+    };
+    
+    const fileName = getImageFileName(selectedProcedure, currentAngle);
+    if (fileName) {
+      try {
+        return require(`./images/${selectedProcedure}/${fileName}`);
+      } catch (error) {
+        console.warn(`Could not load overlay image: ${selectedProcedure}/${fileName}`);
+      }
     }
+    
+    return null;
   };
 
   const dataURLtoBlob = (dataURL: string) => {
@@ -599,7 +936,7 @@ const ClientAddEdit = () => {
                                 isMobile ? (
                                   <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "black", zIndex: 1060 }}>
                                     <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                    {selectedProcedure && <img src={getOverlayImage()} alt={`${selectedProcedure} Guide`} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", opacity: 0.6, objectFit: "contain" }} />}
+                                    {selectedProcedure && <img src={getOverlayImage()} alt={`${selectedProcedure} Guide`} style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", maxWidth: "60%", maxHeight: "60%", pointerEvents: "none", opacity: 0.6, objectFit: "contain" }} />}
                                     <div style={{ position: "absolute", top: 10, left: 10, color: "white", background: "rgba(0,0,0,0.8)", padding: "5px 10px", borderRadius: "5px", fontSize: "11px" }}>
                                       {selectedProcedure} - {currentAngle} ({Object.keys(capturedPhotos).length + 1}/{requiredAngles.length})
                                     </div>
@@ -614,7 +951,7 @@ const ClientAddEdit = () => {
                                 ) : (
                                   <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "black", zIndex: 1060 }}>
                                     <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                    {selectedProcedure && <img src={getOverlayImage()} alt={`${selectedProcedure} Guide`} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", opacity: 0.6, objectFit: "contain" }} />}
+                                    {selectedProcedure && <img src={getOverlayImage()} alt={`${selectedProcedure} Guide`} style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", maxWidth: "60%", maxHeight: "60%", pointerEvents: "none", opacity: 0.6, objectFit: "contain" }} />}
                                     <div style={{ position: "absolute", top: 10, left: 10, color: "white", background: "rgba(0,0,0,0.8)", padding: "5px 10px", borderRadius: "5px", fontSize: "11px" }}>
                                       {selectedProcedure} - {currentAngle} ({Object.keys(capturedPhotos).length + 1}/{requiredAngles.length})
                                     </div>
