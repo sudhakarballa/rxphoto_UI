@@ -283,6 +283,7 @@ const ClientAddEdit = () => {
         signature: finalSignature
       };
       
+      // Submit to backend API only (SharePoint integration moved to backend)
       const backendUrl = process.env.REACT_APP_BACKEND_BASE_URL;
       const response = await fetch(`${backendUrl}/PlmsPhoto/plmsphoto`, {
         method: 'POST',
@@ -293,31 +294,21 @@ const ClientAddEdit = () => {
       });
 
       if (response.ok) {
-        const sharePointResult = await sharePointSvc.submitPatientForm(
-          item,
-          capturedPhotos,
-          finalSignature || undefined
-        );
-
-        if (sharePointResult.success) {
-          toast.success("🎉 Your form has been submitted successfully!");
-          setTimeout(() => {
-            // Reset form and redirect to first step
-            methods.reset();
-            setCurrentStep(1);
-            setCapturedPhotos({});
-            setPhotoPreview(null);
-            setSignaturePreview(null);
-            setSelectedProcedure("");
-            setRequiredAngles([]);
-            setCurrentAngle("");
-            clearSignature();
-            setIsSubmitting(false);
-            setIsSubmitClicked(false);
-          }, 2000);
-        //} else {
-          //toast.warning("Form data saved to backend, but SharePoint upload failed.");
-        }
+        toast.success("🎉 Your form has been submitted successfully!");
+        setTimeout(() => {
+          // Reset form and redirect to first step
+          methods.reset();
+          setCurrentStep(1);
+          setCapturedPhotos({});
+          setPhotoPreview(null);
+          setSignaturePreview(null);
+          setSelectedProcedure("");
+          setRequiredAngles([]);
+          setCurrentAngle("");
+          clearSignature();
+          setIsSubmitting(false);
+          setIsSubmitClicked(false);
+        }, 2000);
       } else {
         throw new Error(`Backend API error: ${response.status}`);
       }

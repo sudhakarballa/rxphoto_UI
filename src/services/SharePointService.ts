@@ -9,25 +9,33 @@ export class SharePointService {
     if (this.accessToken) return this.accessToken;
     
     try {
-      const tokenUrl = `https://login.microsoftonline.com/${this.tenantId}/oauth2/v2.0/token`;
+      const body = `grant_type=client_credentials&client_id=${encodeURIComponent(this.clientId)}&client_secret=${encodeURIComponent(this.clientSecret)}&scope=${encodeURIComponent('https://graph.microsoft.com/.default')}`;
       
-      const response = await fetch(tokenUrl, {
+      const response = await fetch('https://api.allorigins.win/raw', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
+          'Content-Type': 'application/json'
         },
-        body: new URLSearchParams({
-          grant_type: 'client_credentials',
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
-          scope: 'https://graph.microsoft.com/.default'
+        body: JSON.stringify({
+          url: `https://login.microsoftonline.com/${this.tenantId}/oauth2/v2.0/token`,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: body
         })
       });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Token request failed:', response.status, errorText);
+        throw new Error(`Token request failed: ${response.status}`);
+      }
 
       const data = await response.json();
       this.accessToken = data.access_token;
       if (!this.accessToken) {
-        throw new Error('Failed to get access token');
+        throw new Error('Failed to get access token from response');
       }
       return this.accessToken;
     } catch (error) {
@@ -38,12 +46,14 @@ export class SharePointService {
 
   private async getSiteId(): Promise<string> {
     const token = await this.getAccessToken();
-    const response = await fetch(`https://graph.microsoft.com/v1.0/sites?search=*`, {
+    const apiUrl = `https://api.allorigins.win/get?url=${encodeURIComponent('https://graph.microsoft.com/v1.0/sites?search=*')}`;
+    const response = await fetch(apiUrl, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
     });
-    const data = await response.json();
+    const result = await response.json();
+    const data = JSON.parse(result.contents);
     return data.value[0]?.id || 'root';
   }
 
@@ -52,7 +62,7 @@ export class SharePointService {
     const siteId = await this.getSiteId();
     const base64Data = fileData.split(',')[1];
     
-    const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/Customerformuploader/${fileName}:/content`;
+    const uploadUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://graph.microsoft.com/v1.0/sites/${siteId}/drive/root:/Customerformuploader/${fileName}:/content`)}`;
     
     const response = await fetch(uploadUrl, {
       method: 'PUT',
@@ -71,7 +81,7 @@ export class SharePointService {
     const token = await this.getAccessToken();
     const siteId = await this.getSiteId();
     
-    const listUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listName}/items`;
+    const listUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listName}/items`)}`;
     
     const response = await fetch(listUrl, {
       method: 'POST',
